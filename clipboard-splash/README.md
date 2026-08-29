@@ -7,7 +7,7 @@ boilerplate. Tauri + Svelte 5, no runtime beyond WebView2.
 
 | Action | Result |
 | --- | --- |
-| `Ctrl+Alt+V` | Toggle the overlay at the cursor |
+| `Win+Alt+C` | Toggle the overlay at the cursor |
 | Click an item | Copy it, then dismiss |
 | Right-click an item | Edit or delete it |
 | `+` on a folder header | Save the current clipboard into that folder |
@@ -15,14 +15,13 @@ boilerplate. Tauri + Svelte 5, no runtime beyond WebView2.
 | Type in the search box | Flat search across every folder; `Enter` copies the top hit |
 | `Esc` | Close the editor, or dismiss the overlay |
 
-Windows reserves both `Win+V` and `Win+Shift+V` — `RegisterHotKey` refuses them,
-verified on Win11 26200. `Ctrl+Alt+V` keeps the paste mnemonic and is clear of
-the usual conflicts: `Ctrl+Shift+V` is paste-as-plain-text in browsers and VS
-Code, and `Ctrl+` `` ` `` toggles the VS Code terminal.
+Windows reserves `Win+V` and `Win+Shift+V` — `RegisterHotKey` refuses both — but
+`Win+Alt+C` is free, verified on Win11 26200. No keyboard hook or AutoHotkey
+bridge is needed to use the Windows key.
 
-If another app already holds `Ctrl+Alt+V`, registration falls back to
-`Ctrl+Shift+` `` ` `` and then `Ctrl+Alt+B`. Whichever took is printed to stderr
-at startup and shown in the tray tooltip.
+If another app already holds it, registration falls back to `Ctrl+Alt+V` and
+then `Ctrl+Shift+` `` ` ``. Whichever took is printed to stderr at startup and
+shown in the tray tooltip.
 
 The app lives in the tray and registers itself for autostart, so the hotkey
 works after a reboot.

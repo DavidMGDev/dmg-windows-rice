@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use tauri::menu::{Menu, MenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow};
 use tauri_plugin_autostart::{ManagerExt, MacosLauncher};
@@ -10,12 +10,12 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 /// Tried in order; the first one Windows will hand us wins.
 ///
-/// Win+V and Win+Shift+V are both refused: the shell reserves them and
-/// `RegisterHotKey` fails, so neither is worth trying. Ctrl+Alt+V keeps the
-/// paste mnemonic and is clear of the usual conflicts (Ctrl+Shift+V is
-/// paste-as-plain-text in browsers and VS Code; Ctrl+` toggles the VS Code
-/// terminal).
-const HOTKEYS: [&str; 3] = ["Ctrl+Alt+KeyV", "Ctrl+Shift+Backquote", "Ctrl+Alt+KeyB"];
+/// The shell reserves Win+V and Win+Shift+V and `RegisterHotKey` refuses both,
+/// but Win+Alt+C is free (verified on Win11 26200), so no keyboard hook or
+/// AutoHotkey bridge is needed. The fallbacks avoid the usual conflicts:
+/// Ctrl+Shift+V is paste-as-plain-text in browsers and VS Code, and Ctrl+`
+/// toggles the VS Code terminal.
+const HOTKEYS: [&str; 3] = ["Super+Alt+KeyC", "Ctrl+Alt+KeyV", "Ctrl+Shift+Backquote"];
 
 /// Gap between the cursor and the panel, in physical pixels.
 const GAP: i32 = 14;
@@ -147,7 +147,13 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![load_clips, save_clips, fetch_usage])
         .setup(|app| {
             let handle = app.handle();
-            let _ = handle.autolaunch().enable();
+
+            // Opt in on first run only. Enabling every launch would silently
+            // undo the user turning it off.
+            if !store_path(handle).exists() {
+                let _ = handle.autolaunch().enable();
+            }
+            let autostart_on = handle.autolaunch().is_enabled().unwrap_or(false);
 
             let mut active = "none";
             for hotkey in HOTKEYS {
@@ -167,14 +173,30 @@ pub fn run() {
             eprintln!("hotkey active: {label}");
 
             let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+            let startup = CheckMenuItem::with_id(
+                app,
+                "autostart",
+                "Start with Windows",
+                true,
+                autostart_on,
+                None::<&str>,
+            )?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+
+            let startup_item = startup.clone();
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip(format!("Clipboard Splash  ({label})"))
-                .menu(&Menu::with_items(app, &[&show, &quit])?)
+                .menu(&Menu::with_items(app, &[&show, &startup, &quit])?)
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
+                .on_menu_event(move |app, event| match event.id.as_ref() {
                     "show" => toggle(app),
+                    "autostart" => {
+                        let launcher = app.autolaunch();
+                        let on = launcher.is_enabled().unwrap_or(false);
+                        let _ = if on { launcher.disable() } else { launcher.enable() };
+                        let _ = startup_item.set_checked(!on);
+                    }
                     "quit" => app.exit(0),
                     _ => {}
                 })

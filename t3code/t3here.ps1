@@ -52,6 +52,10 @@ function Install-T3Here {
         New-Item -Path (Join-Path $key 'command') -Force | Out-Null
         Set-ItemProperty -Path $key -Name '(default)' -Value $MenuLabel
         Set-ItemProperty -Path $key -Name 'Icon' -Value "`"$exe`",0"
+        # Classic shell verbs are drawn below IExplorerCommand handlers (Open in
+        # Terminal, PowerRename) and sort alphabetically among themselves, which
+        # buries a T-named verb. Top pins it to the head of the menu instead.
+        Set-ItemProperty -Path $key -Name 'Position' -Value 'Top'
         # %V is the clicked folder for both Directory and Directory\Background.
         Set-ItemProperty -Path (Join-Path $key 'command') -Name '(default)' `
             -Value "wscript.exe `"$vbs`" `"%V`""

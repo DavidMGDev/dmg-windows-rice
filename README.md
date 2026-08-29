@@ -12,9 +12,31 @@ your own profile, except where a script says otherwise.
 | [`t3code/`](t3code) | **Continue with T3Code.** Opens any folder as a T3 Code project, from the terminal (`t3here`) or the Explorer right-click menu. Creates the project only if it doesn't exist yet. |
 | [`remappings/`](remappings) | AutoHotkey v2. `HyperRemap.ahk` kills Caps Lock and turns it into a hyper key for symbols you'd otherwise reach for with a modifier (`Caps+q` → `@`, `Caps+j` → `{}`, and so on). `BlackScreen.ahk` blanks every monitor on `Ctrl+Alt+Shift+B` and hides the cursor, any key wakes it. |
 | [`steam/`](steam) | Toggles a firewall rule that blocks `steam.exe` outbound, to force offline mode. Self-elevates, shuts Steam down first, restarts it after. |
-| [`skills/windows-context-menu/`](skills/windows-context-menu) | Reference for driving the Explorer right-click menu from the registry: how entries are ordered, how to place one where you want it, and how to fix an item that shows up twice. |
+| [`skills/`](skills) | Claude Code skills I wrote. This folder is the source of truth; `claude-init` mirrors it. See below. |
 | [`th901-schedule/`](th901-schedule) | TH901 group schedule viewer, a single HTML page over a JSON file. Open `schedule-conflicts.html`, no build step. |
 | [`clipboard-splash/`](clipboard-splash) | Tauri + Svelte clipboard viewer. Scaffold only so far: `src-tauri` has no `Cargo.toml` or `tauri.conf.json` yet, so it does not build. |
+
+## Skills
+
+`skills/` holds the Claude Code skills I wrote, one folder per skill. It is the
+**source of truth**: `claude-init/skills/` is a mirror of it, so a new machine
+gets these from `claude-init` along with the `mattpocock-skills` plugin and
+`no-ai-slop`.
+
+| | |
+| --- | --- |
+| [`arena/`](skills/arena) | Spawns N candidates at one task, cross-judges, picks a base, grafts the best of the losers into it. |
+| [`blast-radius/`](skills/blast-radius) | Finds what a change breaks beyond the diff, and proves the one safety fact by running real code. |
+| [`windows-context-menu/`](skills/windows-context-menu) | Driving the Explorer right-click menu from the registry: how entries are ordered, how to place one where you want it, and how to fix an item that shows up twice. |
+| [`sync-claude-init/`](skills/sync-claude-init) | Mirrors this folder into the `claude-init` submodule and commits both repos. Run it after adding or changing a skill. |
+
+Adding a skill is: drop a folder with a `SKILL.md` in here, run
+`sync-claude-init`. Neither repo has a list of skill names to update —
+`claude-init` discovers whatever is in its `skills/` folder at runtime.
+
+`sync-claude-init` is deliberately not mirrored; it only means anything here.
+The `mattpocock-skills` plugin and `no-ai-slop` are not files, so they stay
+declared in `claude-init/bin/claude-init.js`.
 
 ## Submodules
 
@@ -50,6 +72,10 @@ Then, per tool:
   drop shortcuts to both `.ahk` files in `shell:startup` so they come back
   after a reboot.
 - **Steam toggle:** run it when you want it, nothing to install.
+- **Skills:** `cd claude-init && npm link`, then run `claude-init` in any repo.
+  It installs everything in `skills/`, the `mattpocock-skills` plugin and
+  `no-ai-slop` into `~/.claude/skills/`, then opens Claude on
+  `/setup-matt-pocock-skills`.
 
 To pull the submodules up to their latest published commits later:
 

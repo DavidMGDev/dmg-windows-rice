@@ -1,2 +1,7 @@
 node_modules/
 *.log
+
+# --- claude-init ---
+.claude/settings.local.json
+.scratch/
+# --- end claude-init ---

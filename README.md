@@ -14,7 +14,7 @@ your own profile, except where a script says otherwise.
 | [`steam/`](steam) | Toggles a firewall rule that blocks `steam.exe` outbound, to force offline mode. Self-elevates, shuts Steam down first, restarts it after. |
 | [`skills/`](skills) | Claude Code skills I wrote. This folder is the source of truth; `claude-init` mirrors it. See below. |
 | [`th901-schedule/`](th901-schedule) | TH901 group schedule viewer, a single HTML page over a JSON file. Open `schedule-conflicts.html`, no build step. |
-| [`clipboard-splash/`](clipboard-splash) | Tauri + Svelte clipboard viewer. Scaffold only so far: `src-tauri` has no `Cargo.toml` or `tauri.conf.json` yet, so it does not build. |
+| [`clipboard-splash/`](clipboard-splash) | Cursor-anchored overlay for clipboard snippets you reuse, on `Win+Shift+V`. Tauri + Svelte 5. See [`clipboard-splash/README.md`](clipboard-splash/README.md). |
 
 ## Skills
 

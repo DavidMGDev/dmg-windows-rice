@@ -14,14 +14,14 @@
       {
         "label": "main",
         "title": "Clipboard Splash",
-        "width": 380,
-        "height": 520,
+        "width": 440,
+        "height": 560,
         "resizable": false,
         "decorations": false,
-        "transparent": true,
+        "transparent": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "shadow": false,
+        "shadow": true,
         "visible": false
       }
     ],

@@ -8,14 +8,37 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow};
 use tauri_plugin_autostart::{ManagerExt, MacosLauncher};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-/// Tried in order; the first one Windows will hand us wins.
+/// Every one of these is registered, not just the first that takes, so the
+/// overlay answers to whichever the user reaches for.
 ///
-/// The shell reserves Win+V and Win+Shift+V and `RegisterHotKey` refuses both,
-/// but Win+Alt+C is free (verified on Win11 26200), so no keyboard hook or
-/// AutoHotkey bridge is needed. The fallbacks avoid the usual conflicts:
-/// Ctrl+Shift+V is paste-as-plain-text in browsers and VS Code, and Ctrl+`
-/// toggles the VS Code terminal.
-const HOTKEYS: [&str; 3] = ["Super+Alt+KeyC", "Ctrl+Alt+KeyV", "Ctrl+Shift+Backquote"];
+/// The shell reserves Win+V, Win+Shift+V and Win+C, and `RegisterHotKey`
+/// refuses all three; Win+C only frees up once Copilot is turned off. Win+Alt+C
+/// is free either way (verified on Win11 26200). The rest avoid the usual
+/// conflicts: Ctrl+Shift+V is paste-as-plain-text in browsers and VS Code, and
+/// Ctrl+` toggles the VS Code terminal.
+const HOTKEYS: [&str; 3] = ["Super+KeyC", "Super+Alt+KeyC", "Ctrl+Alt+KeyV"];
+
+/// Win11 does not round undecorated windows on its own, and a CSS shadow would
+/// be clipped by the window rect. Handing both to DWM keeps the shadow outside
+/// the window where it cannot be cut off.
+#[cfg(windows)]
+fn round_corners(win: &WebviewWindow) {
+    use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
+    const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+    const DWMWCP_ROUND: u32 = 2;
+
+    if let Ok(hwnd) = win.hwnd() {
+        let preference: u32 = DWMWCP_ROUND;
+        unsafe {
+            DwmSetWindowAttribute(
+                hwnd.0 as _,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                std::ptr::addr_of!(preference).cast(),
+                std::mem::size_of::<u32>() as u32,
+            );
+        }
+    }
+}
 
 /// Gap between the cursor and the panel, in physical pixels.
 const GAP: i32 = 14;
@@ -118,6 +141,11 @@ fn show_near_cursor(win: &WebviewWindow) -> tauri::Result<()> {
         win.set_position(PhysicalPosition::new(x, y))?;
     }
 
+    // Setting this in setup() does not survive to first paint, so re-apply it
+    // here. Idempotent and a single cheap syscall.
+    #[cfg(windows)]
+    round_corners(win);
+
     win.show()?;
     win.set_focus()?;
     win.emit("shown", ())?;
@@ -138,6 +166,12 @@ fn toggle(app: &AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Must be first. Also lets an external launcher (an AutoHotkey script
+        // bound to a key the shell will not release) toggle us by re-running
+        // the exe instead of starting a second copy.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            toggle(app);
+        }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
@@ -155,7 +189,7 @@ pub fn run() {
             }
             let autostart_on = handle.autolaunch().is_enabled().unwrap_or(false);
 
-            let mut active = "none";
+            let mut taken: Vec<String> = Vec::new();
             for hotkey in HOTKEYS {
                 let registered = handle.global_shortcut().on_shortcut(hotkey, |app, _, event| {
                     if event.state() == ShortcutState::Pressed {
@@ -163,14 +197,18 @@ pub fn run() {
                     }
                 });
                 if registered.is_ok() {
-                    active = hotkey;
-                    break;
+                    taken.push(hotkey.replace("Key", "").replace("Backquote", "`"));
+                } else {
+                    eprintln!("hotkey {hotkey} unavailable");
                 }
-                eprintln!("hotkey {hotkey} unavailable, trying next");
             }
-            // Which one took is not guessable from outside, so surface it.
-            let label = active.replace("Key", "").replace("Backquote", "`");
-            eprintln!("hotkey active: {label}");
+            // Which ones took is not guessable from outside, so surface it.
+            let label = if taken.is_empty() {
+                "no hotkey".to_string()
+            } else {
+                taken.join("  ")
+            };
+            eprintln!("hotkeys active: {label}");
 
             let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
             let startup = CheckMenuItem::with_id(

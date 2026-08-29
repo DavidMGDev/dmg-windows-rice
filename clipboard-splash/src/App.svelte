@@ -46,13 +46,17 @@
   const pct = (w: UsageWindow) =>
     Math.min(100, Math.max(0, Math.round(w?.utilization ?? 0)));
 
+  /** Compact enough to sit under a 3px bar: "2h 14m", "5d 3h", "18m". */
   function resetLabel(w: UsageWindow) {
-    if (!w?.resets_at) return "no reset time";
+    if (!w?.resets_at) return "—";
     const ms = new Date(w.resets_at).getTime() - Date.now();
-    if (ms <= 0) return "resetting";
-    const h = Math.floor(ms / 3_600_000);
-    const m = Math.round((ms % 3_600_000) / 60_000);
-    return h ? `resets in ${h}h ${m}m` : `resets in ${m}m`;
+    if (ms <= 0) return "now";
+    const mins = Math.floor(ms / 60_000);
+    const hours = Math.floor(mins / 60);
+    const days = Math.floor(hours / 24);
+    if (days) return `${days}d ${hours % 24}h`;
+    if (hours) return `${hours}h ${mins % 60}m`;
+    return `${mins}m`;
   }
 
   const results = $derived.by(() => {
@@ -200,25 +204,18 @@
       placeholder="Search clips"
       spellcheck="false"
     />
+    <button class="icon pinned" title="New folder" onclick={addFolder}>&#xE8F4;</button>
   </div>
 
   <div class="body">
     {#if query.trim()}
-      {#each results as { folder, item } (item.id)}
-        <button
-          class="item"
-          onclick={() => copy(item)}
-          oncontextmenu={(e) => {
-            e.preventDefault();
-            edit(folder, item);
-          }}
-        >
-          <span class="label">{item.label}</span>
-          <span class="preview">{folder.name}</span>
-        </button>
-      {:else}
-        <p class="empty">No matches</p>
-      {/each}
+      <div class="grid">
+        {#each results as { folder, item } (item.id)}
+          {@render tile(folder, item, folder.name)}
+        {:else}
+          <p class="empty">No matches</p>
+        {/each}
+      </div>
     {:else}
       {#each folders as folder (folder.id)}
         <details bind:open={folder.open}>
@@ -268,41 +265,31 @@
             >
           </summary>
 
-          {#each folder.items as item (item.id)}
-            <button
-              class="item"
-              onclick={() => copy(item)}
-              oncontextmenu={(e) => {
-                e.preventDefault();
-                edit(folder, item);
-              }}
-            >
-              <span class="label">{item.label}</span>
-              {#if item.text.trim() !== item.label}
-                <span class="preview">{item.text}</span>
-              {/if}
-            </button>
-          {:else}
-            <p class="empty small">Copy something, then press +</p>
-          {/each}
+          <div class="grid">
+            {#each folder.items as item (item.id)}
+              {@render tile(folder, item, "")}
+            {:else}
+              <p class="empty">Copy something, then press +</p>
+            {/each}
+          </div>
         </details>
       {/each}
     {/if}
   </div>
 
   <div class="footer">
-    <button class="ghost" onclick={addFolder}>
-      <span class="glyph">&#xE8F4;</span> New folder
-    </button>
+    <span class="brand" title="Claude plan usage">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+        {#each [0, 30, 60, 90, 120, 150] as angle}
+          <rect x="14.9" y="3" width="2.2" height="26" rx="1.1" transform="rotate({angle} 16 16)" />
+        {/each}
+      </svg>
+    </span>
     {#if usage}
-      <div class="meters">
-        {@render meter("5h", usage.five_hour)}
-        {@render meter("7d", usage.seven_day)}
-      </div>
+      {@render meter("5h", usage.five_hour)}
+      {@render meter("7d", usage.seven_day)}
     {:else}
-      <span class="hint" title={usageNote}>
-        {usageNote || "Click to copy · Right-click to edit"}
-      </span>
+      <span class="hint" title={usageNote}>{usageNote || "Usage unavailable"}</span>
     {/if}
   </div>
 
@@ -339,13 +326,31 @@
   {/if}
 </div>
 
+{#snippet tile(folder: Folder, item: Item, badge: string)}
+  <button
+    class="tile"
+    onclick={() => copy(item)}
+    oncontextmenu={(e) => {
+      e.preventDefault();
+      edit(folder, item);
+    }}
+  >
+    <span class="t-label">{item.label}</span>
+    <span class="t-preview">{item.text}</span>
+    {#if badge}<span class="t-badge">{badge}</span>{/if}
+  </button>
+{/snippet}
+
 {#snippet meter(name: string, w: UsageWindow)}
   <button
     class="meter"
-    title="{name}: {pct(w)}% used, {resetLabel(w)}"
+    title="{name} window, {pct(w)}% used"
     onclick={() => refreshUsage(true)}
   >
-    <span class="m-name">{name}</span>
+    <span class="m-top">
+      <span class="m-name">{name}</span>
+      <span class="m-pct">{pct(w)}%</span>
+    </span>
     <span class="track">
       <span
         class="fill"
@@ -354,24 +359,19 @@
         style="width:{pct(w)}%"
       ></span>
     </span>
-    <span class="m-pct">{pct(w)}%</span>
+    <span class="m-reset">{resetLabel(w)}</span>
   </button>
 {/snippet}
 
 <style>
+  /* The window itself is opaque and DWM rounds and shadows it, so there is no
+     CSS shadow to get clipped by the window rect. */
   .panel {
     position: relative;
     display: flex;
     flex-direction: column;
-    margin: 12px;
-    height: calc(100vh - 24px);
-    background: rgba(38, 38, 38, 0.96);
-    border: 1px solid var(--stroke);
-    border-radius: var(--r-surface);
-    box-shadow:
-      0 16px 40px rgba(0, 0, 0, 0.55),
-      0 2px 8px rgba(0, 0, 0, 0.4),
-      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    height: 100vh;
+    background: #262626;
     overflow: hidden;
   }
 
@@ -388,7 +388,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 12px;
+    padding: 10px 10px 10px 12px;
     border-bottom: 1px solid var(--stroke);
   }
   .search .glyph {
@@ -396,6 +396,7 @@
   }
   .search input {
     flex: 1;
+    min-width: 0;
     background: none;
     border: none;
     outline: none;
@@ -465,6 +466,9 @@
   summary:hover .icon {
     opacity: 1;
   }
+  .icon.pinned {
+    opacity: 1;
+  }
   .icon:hover {
     background: var(--stroke-strong);
     color: var(--fg);
@@ -475,51 +479,86 @@
     background: rgba(255, 153, 164, 0.12);
   }
 
-  .item {
-    display: block;
-    width: 100%;
+  /* Gallery */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 4px 4px 10px;
+  }
+  .tile {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-height: 60px;
+    padding: 8px 10px;
     text-align: left;
-    padding: 7px 10px 7px 26px;
-    border-radius: var(--r-control);
-    border-left: 2px solid transparent;
-  }
-  .item:hover {
     background: var(--layer);
-    border-left-color: var(--accent);
+    border: 1px solid var(--stroke);
+    border-radius: 6px;
+    transition:
+      background 120ms ease,
+      border-color 120ms ease;
   }
-  .item:active {
+  .tile:hover {
+    background: var(--hover);
+    border-color: var(--stroke-strong);
+  }
+  .tile:active {
     background: var(--press);
   }
-  .label,
-  .preview {
-    display: block;
+  .t-label {
+    font-size: 12.5px;
+    font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .preview {
-    font-size: 12px;
+  .t-preview {
+    font-size: 11px;
+    line-height: 1.35;
     color: var(--fg-3);
-    margin-top: 1px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-all;
+  }
+  .t-badge {
+    align-self: flex-start;
+    margin-top: 2px;
+    padding: 1px 6px;
+    font-size: 10px;
+    color: var(--fg-3);
+    background: var(--press);
+    border-radius: 999px;
   }
 
   .empty {
-    margin: 10px;
+    grid-column: 1 / -1;
+    margin: 6px 4px 2px;
     color: var(--fg-3);
     font-size: 12px;
-  }
-  .empty.small {
-    margin: 2px 0 6px 26px;
   }
 
   /* Footer */
   .footer {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 8px 10px;
+    gap: 10px;
+    padding: 7px 10px;
     border-top: 1px solid var(--stroke);
+  }
+  .brand {
+    display: flex;
+    flex: none;
+  }
+  .mark {
+    width: 17px;
+    height: 17px;
+    fill: #d97757;
   }
   .hint {
     flex: 1;
@@ -533,28 +572,35 @@
   }
 
   /* Plan usage */
-  .meters {
-    display: flex;
-    gap: 10px;
-  }
   .meter {
+    flex: 1;
+    min-width: 0;
     display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 2px 4px;
+    flex-direction: column;
+    gap: 3px;
+    padding: 3px 7px;
     border-radius: var(--r-control);
-    font-size: 11px;
-    color: var(--fg-3);
   }
   .meter:hover {
     background: var(--hover);
   }
+  .m-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 10.5px;
+    color: var(--fg-3);
+  }
   .m-name {
+    font-weight: 600;
+    color: var(--fg-2);
+  }
+  .m-pct {
     font-variant-numeric: tabular-nums;
   }
   .track {
-    width: 44px;
-    height: 4px;
+    width: 100%;
+    height: 3px;
     border-radius: 2px;
     background: var(--stroke-strong);
     overflow: hidden;
@@ -572,43 +618,17 @@
   .fill.hot {
     background: var(--danger);
   }
-  .m-pct {
-    min-width: 26px;
+  .m-reset {
+    font-size: 10px;
+    color: var(--fg-3);
     text-align: right;
     font-variant-numeric: tabular-nums;
-  }
-
-  .ghost,
-  .accent {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 12px;
-    font-size: 12px;
-    border-radius: var(--r-control);
-    border: 1px solid var(--stroke);
-    background: var(--layer);
-  }
-  .ghost:hover {
-    background: var(--hover);
-  }
-  .ghost.danger {
-    color: var(--danger);
-  }
-  .accent {
-    background: var(--accent);
-    border-color: transparent;
-    color: #003e5c;
-    font-weight: 600;
-  }
-  .accent:hover {
-    opacity: 0.9;
   }
 
   /* Toast */
   .toast {
     position: absolute;
-    bottom: 48px;
+    bottom: 56px;
     left: 50%;
     transform: translateX(-50%);
     padding: 5px 14px;
@@ -626,7 +646,6 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px;
-    /* Fully opaque: at 0.99 the list ghosts through. */
     background: #202020;
   }
   .field {
@@ -653,6 +672,32 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+  .ghost,
+  .accent {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    font-size: 12px;
+    border-radius: var(--r-control);
+    border: 1px solid var(--stroke);
+    background: var(--layer);
+  }
+  .ghost:hover {
+    background: var(--hover);
+  }
+  .ghost.danger {
+    color: var(--danger);
+  }
+  .accent {
+    background: var(--accent);
+    border-color: transparent;
+    color: #003e5c;
+    font-weight: 600;
+  }
+  .accent:hover {
+    opacity: 0.9;
   }
   .spacer {
     flex: 1;

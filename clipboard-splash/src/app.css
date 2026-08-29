@@ -27,7 +27,9 @@ html,
 body {
   margin: 0;
   height: 100%;
-  background: transparent;
+  /* Opaque: DWM draws the shadow and rounds the corners outside the window,
+     so a transparent margin is not needed and would only eat clicks. */
+  background: #262626;
   overflow: hidden;
   user-select: none;
   cursor: default;

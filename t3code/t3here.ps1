@@ -16,7 +16,12 @@ param(
 )
 
 $MenuLabel = 'Continue with T3Code'
-$KeyName   = 'T3Code'
+# Static verbs are drawn after the packaged and shellex handlers, and sort
+# alphabetically among themselves by key name, so the key name is the only
+# lever on placement. This one sorts ahead of git_gui and git_shell, which puts
+# the entry directly under Open in Terminal's group instead of below them.
+$KeyName    = 'ContinueWithT3Code'
+$LegacyKeys = @('T3Code')
 $ShellKeys = @(
     'HKCU:\Software\Classes\Directory\shell'             # right-click a folder
     'HKCU:\Software\Classes\Directory\Background\shell'  # right-click inside a folder
@@ -43,19 +48,25 @@ function Show-Failure($message) {
     }
 }
 
+function Remove-ShellKeys($names) {
+    foreach ($base in $ShellKeys) {
+        foreach ($name in $names) {
+            Remove-Item -Path (Join-Path $base $name) -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Install-T3Here {
     $exe = Get-T3CodeExe
     $vbs = Join-Path $PSScriptRoot 't3here.vbs'
+
+    Remove-ShellKeys $LegacyKeys
 
     foreach ($base in $ShellKeys) {
         $key = Join-Path $base $KeyName
         New-Item -Path (Join-Path $key 'command') -Force | Out-Null
         Set-ItemProperty -Path $key -Name '(default)' -Value $MenuLabel
         Set-ItemProperty -Path $key -Name 'Icon' -Value "`"$exe`",0"
-        # Classic shell verbs are drawn below IExplorerCommand handlers (Open in
-        # Terminal, PowerRename) and sort alphabetically among themselves, which
-        # buries a T-named verb. Top pins it to the head of the menu instead.
-        Set-ItemProperty -Path $key -Name 'Position' -Value 'Top'
         # %V is the clicked folder for both Directory and Directory\Background.
         Set-ItemProperty -Path (Join-Path $key 'command') -Name '(default)' `
             -Value "wscript.exe `"$vbs`" `"%V`""
@@ -75,9 +86,7 @@ function Install-T3Here {
 }
 
 function Uninstall-T3Here {
-    foreach ($base in $ShellKeys) {
-        Remove-Item -Path (Join-Path $base $KeyName) -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    Remove-ShellKeys (@($KeyName) + $LegacyKeys)
     $userPath = ([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') | Where-Object { $_ -and $_ -ne $PSScriptRoot }
     [Environment]::SetEnvironmentVariable('Path', ($userPath -join ';'), 'User')
     Write-Host 'Removed the context-menu entry and the PATH entry. The t3 CLI was left installed.'

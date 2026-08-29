@@ -79,12 +79,11 @@ Two keys, both under `HKCU\Software\Classes`, which Windows merges into
 
 | Key | Fires when you right-click |
 | --- | --- |
-| `Directory\shell\T3Code` | a folder |
-| `Directory\Background\shell\T3Code` | empty space inside a folder |
+| `Directory\shell\ContinueWithT3Code` | a folder |
+| `Directory\Background\shell\ContinueWithT3Code` | empty space inside a folder |
 
 Each one holds the label as its default value, an `Icon` value pointing at
-`"<t3code.exe>",0` so the entry gets the app icon, `Position` set to `Top`, and
-a `command` subkey:
+`"<t3code.exe>",0` so the entry gets the app icon, and a `command` subkey:
 
 ```
 wscript.exe "<this folder>\t3here.vbs" "%V"
@@ -93,24 +92,31 @@ wscript.exe "<this folder>\t3here.vbs" "%V"
 `%V` expands to the clicked folder and is the right token for both keys
 (`%1` works for `Directory` but is empty for `Directory\Background`).
 
-`Position` is what keeps the entry near the top. Windows draws
-`IExplorerCommand` handlers and `shellex\ContextMenuHandlers` first (Open in
-Terminal, which is a packaged command from the Windows Terminal appx, and
-Rename with PowerRename), then classic `shell` verbs sorted alphabetically by
-key name. A verb called `T3Code` therefore lands below `git_gui` and
-`git_shell`, near the bottom of the block. `Position` accepts `Top` or
-`Bottom`; `Top` pulls it up to the head of the menu. The alternative, if you'd
-rather not pin it, is to rename the key so it sorts ahead of the other verbs.
+### Where it lands in the menu
 
-The `wscript.exe` indirection is there to avoid a console window. Pointing the
-command straight at `powershell.exe` would flash a black box for the two-odd
-seconds the CLI takes; `-WindowStyle Hidden` doesn't help, because the console
-host is created before the style is applied. `t3here.vbs` is three lines that
-launch the same script with the window hidden. From a terminal you get
-`t3here.cmd` instead, which does show output.
+The key is named `ContinueWithT3Code` rather than `T3Code`, and that name is
+load-bearing. Windows builds this stretch of the menu in a fixed order:
 
-Because the script is invisible when launched that way, errors it can't handle
-come back as a message box rather than going to a console nobody is watching.
+1. Static verbs with `Position` set to `Top`.
+2. The shell's own items: View, Sort by, Group by, Refresh, Paste.
+3. Packaged `IExplorerCommand` handlers. Open in Terminal is one, shipped by
+   the Windows Terminal appx.
+4. `shellex\ContextMenuHandlers` extensions, such as PowerRename.
+5. Static `shell` verbs, sorted alphabetically by key name.
+6. Give access to, New, Properties.
+
+A static verb can't be placed inside groups 3 or 4, so the closest it can get
+to Open in Terminal is the head of group 5. `Position` doesn't help: it accepts
+only `Top` or `Bottom`, and `Top` throws the entry above View, at the very top
+of the menu. That leaves sort order as the only fine-grained lever, so the key
+is named to land ahead of `git_gui` and `git_shell`.
+
+Sitting directly beside Open in Terminal would mean implementing
+`IExplorerCommand`, which is a COM DLL in a sparse MSIX package. That's a lot
+of machinery for one menu item.
+
+`cmd` and `Powershell` are registered under the same key but carry an
+`Extended` value, which hides them unless you hold Shift while right-clicking.
 
 ### Windows 11 and the classic menu
 

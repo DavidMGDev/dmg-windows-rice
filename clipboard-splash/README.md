@@ -26,6 +26,16 @@ all three. `Win+Alt+C` is free either way, verified on Win11 26200.
 
 ### Getting `Win+C` back from Copilot
 
+Run the wizard, which does everything below and verifies each step:
+
+```sh
+bash scripts/enable-win-c.sh
+```
+
+It probes who owns `Win+C` with `RegisterHotKey`, walks you through the one
+elevated step, restarts Explorer, and falls back to AutoHotkey if the key
+stays reserved. Safe to re-run. The manual route follows.
+
 `Win+C` cannot be claimed through `RegisterHotKey` while the shell holds it, so
 `clipboard-splash.ahk` binds it with AutoHotkey v2 instead. A low-level keyboard
 hook runs ahead of the shell, so Copilot never sees the keypress and the overlay

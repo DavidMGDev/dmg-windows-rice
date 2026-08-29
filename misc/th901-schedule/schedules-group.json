@@ -1,0 +1,164 @@
+{
+  "format": "schedulebuilder-group",
+  "version": 1,
+  "schedules": [
+    {
+      "name": "David",
+      "schedule": {
+        "name": "David",
+        "id": "sch-david",
+        "themeId": "standard",
+        "isPrimary": true,
+        "events": [
+          { "id": "dv-ent", "title": "Entrenamiento", "color": "#0d9488", "startHour": 5, "startMinute": 0, "endHour": 6, "endMinute": 30, "days": [1, 2, 5, 6] },
+          { "id": "dv-pso", "title": "Principios con Jorge", "color": "#ea580c", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [3] },
+          { "id": "dv-cys", "title": "Compu y Guasón con Abel", "color": "#0d9488", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [4] },
+          { "id": "dv-sem", "title": "Estudios Costarricenses con Benja", "color": "#db2777", "startHour": 13, "startMinute": 25, "endHour": 16, "endMinute": 5, "days": [4] },
+          { "id": "dv-dat", "title": "Intro a Datos con Winston", "color": "#7c3aed", "startHour": 17, "startMinute": 5, "endHour": 20, "endMinute": 40, "days": [4] },
+          { "id": "dv-inv", "title": "Inv. Operaciones con Ballestero", "color": "#2563eb", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [5] },
+          { "id": "dv-dom", "title": "Día No Disponible", "color": "#ea580c", "startHour": 5, "startMinute": 0, "endHour": 22, "endMinute": 0, "days": [0] },
+          { "id": "dv-sab", "title": "Tarde No Disponible", "color": "#ea580c", "startHour": 12, "startMinute": 0, "endHour": 22, "endMinute": 0, "days": [6] }
+        ],
+        "settings": { "visibleDays": [1, 2, 3, 4, 5, 6, 0], "weekStartDay": 0, "startHour": 5, "endHour": 22, "use24h": false, "displayMode": "grid", "viewMode": "weekly", "axis": "vertical" }
+      }
+    },
+    {
+      "name": "Rafael",
+      "schedule": {
+        "name": "Rafael",
+        "id": "sch-rafael",
+        "themeId": "standard",
+        "isPrimary": false,
+        "events": [
+          { "id": "rf-seg", "title": "Seguridad del Software", "color": "#0891b2", "startHour": 16, "startMinute": 10, "endHour": 19, "endMinute": 45, "days": [1] },
+          { "id": "rf-pso", "title": "Principios de Sistemas Operativos", "color": "#ea580c", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [3] },
+          { "id": "rf-cys", "title": "Computación y Sociedad", "color": "#0d9488", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [4] },
+          { "id": "rf-sem", "title": "Seminario de Estudios Costarricenses", "color": "#db2777", "startHour": 13, "startMinute": 25, "endHour": 16, "endMinute": 5, "days": [4] },
+          { "id": "rf-inv", "title": "Investigación de Operaciones", "color": "#2563eb", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [5] },
+          { "id": "rf-noc", "title": "Noche No Disponible", "color": "#ea580c", "startHour": 18, "startMinute": 0, "endHour": 22, "endMinute": 0, "days": [3] }
+        ],
+        "settings": { "visibleDays": [1, 2, 3, 4, 5, 6, 0], "weekStartDay": 0, "startHour": 5, "endHour": 22, "use24h": false, "displayMode": "grid", "viewMode": "weekly", "axis": "vertical" }
+      }
+    },
+    {
+      "name": "Aarón",
+      "schedule": {
+        "name": "Aarón",
+        "id": "sch-aaron",
+        "themeId": "standard",
+        "isPrimary": false,
+        "events": [
+          { "id": "aa-seg", "title": "Seguridad del Software", "color": "#0891b2", "startHour": 16, "startMinute": 10, "endHour": 19, "endMinute": 45, "days": [1] },
+          { "id": "aa-cys", "title": "Computación y Sociedad", "color": "#0d9488", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [2] },
+          { "id": "aa-mar", "title": "Martes No Disponible", "color": "#ea580c", "startHour": 14, "startMinute": 0, "endHour": 22, "endMinute": 0, "days": [2] },
+          { "id": "aa-pso", "title": "Principios de Sistemas Operativos", "color": "#ea580c", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [4] },
+          { "id": "aa-sem", "title": "Seminario de Estudios Costarricenses", "color": "#db2777", "startHour": 13, "startMinute": 25, "endHour": 16, "endMinute": 5, "days": [4] },
+          { "id": "aa-dat", "title": "Introducción al Análisis de Datos", "color": "#7c3aed", "startHour": 17, "startMinute": 5, "endHour": 20, "endMinute": 40, "days": [4] },
+          { "id": "aa-inv", "title": "Investigación de Operaciones", "color": "#2563eb", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [5] }
+        ],
+        "settings": { "visibleDays": [1, 2, 3, 4, 5, 6, 0], "weekStartDay": 0, "startHour": 5, "endHour": 22, "use24h": false, "displayMode": "grid", "viewMode": "weekly", "axis": "vertical" }
+      }
+    },
+    {
+      "name": "Paula",
+      "schedule": {
+        "name": "Paula",
+        "id": "sch-paula",
+        "themeId": "standard",
+        "isPrimary": false,
+        "events": [
+          { "id": "pa-via", "title": "Proceso de Viajar", "color": "#ea580c", "startHour": 8, "startMinute": 0, "endHour": 12, "endMinute": 0, "days": [1] },
+          { "id": "pa-seg", "title": "Seguridad del Software", "color": "#0891b2", "startHour": 16, "startMinute": 10, "endHour": 19, "endMinute": 45, "days": [1] },
+          { "id": "pa-cys", "title": "Computación y Sociedad", "color": "#0d9488", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [2] },
+          { "id": "pa-pso", "title": "Principios de Sistemas Operativos", "color": "#ea580c", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [4] },
+          { "id": "pa-sem", "title": "Seminario de Estudios Costarricenses", "color": "#db2777", "startHour": 13, "startMinute": 25, "endHour": 16, "endMinute": 5, "days": [4] },
+          { "id": "pa-dat", "title": "Introducción al Análisis de Datos", "color": "#7c3aed", "startHour": 17, "startMinute": 5, "endHour": 20, "endMinute": 40, "days": [4] },
+          { "id": "pa-inv", "title": "Investigación de Operaciones", "color": "#2563eb", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [5] },
+          { "id": "pa-vi2", "title": "Viajar (puede variar)", "color": "#ea580c", "startHour": 12, "startMinute": 30, "endHour": 16, "endMinute": 30, "days": [5] }
+        ],
+        "settings": { "visibleDays": [1, 2, 3, 4, 5, 6, 0], "weekStartDay": 0, "startHour": 5, "endHour": 22, "use24h": false, "displayMode": "grid", "viewMode": "weekly", "axis": "vertical" }
+      }
+    },
+    {
+      "name": "Jairo",
+      "schedule": {
+        "name": "Jairo",
+        "id": "sch-jairo",
+        "themeId": "standard",
+        "isPrimary": false,
+        "events": [
+          { "id": "ja-seg", "title": "Seguridad del Software", "color": "#0891b2", "startHour": 16, "startMinute": 10, "endHour": 19, "endMinute": 45, "days": [1] },
+          { "id": "ja-pso", "title": "Principios de Sistemas Operativos", "color": "#ea580c", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [3] },
+          { "id": "ja-cys", "title": "Computación y Sociedad", "color": "#0d9488", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [4] },
+          { "id": "ja-sem", "title": "Seminario de Estudios Costarricenses", "color": "#db2777", "startHour": 13, "startMinute": 25, "endHour": 16, "endMinute": 5, "days": [4] },
+          { "id": "ja-inv", "title": "Investigación de Operaciones", "color": "#2563eb", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [5] }
+        ],
+        "settings": { "visibleDays": [1, 2, 3, 4, 5, 6, 0], "weekStartDay": 0, "startHour": 5, "endHour": 22, "use24h": false, "displayMode": "grid", "viewMode": "weekly", "axis": "vertical" }
+      }
+    },
+    {
+      "name": "Victor",
+      "schedule": {
+        "name": "Victor",
+        "id": "sch-victor",
+        "themeId": "standard",
+        "isPrimary": false,
+        "events": [
+          { "id": "vi-mar", "title": "Clase", "color": "#2563eb", "startHour": 8, "startMinute": 0, "endHour": 11, "endMinute": 30, "days": [2] },
+          { "id": "vi-mie", "title": "Clase", "color": "#2563eb", "startHour": 8, "startMinute": 0, "endHour": 11, "endMinute": 30, "days": [3] },
+          { "id": "vi-jue", "title": "Clase", "color": "#2563eb", "startHour": 12, "startMinute": 30, "endHour": 16, "endMinute": 0, "days": [4] }
+        ],
+        "settings": { "visibleDays": [1, 2, 3, 4, 5, 6, 0], "weekStartDay": 0, "startHour": 5, "endHour": 22, "use24h": false, "displayMode": "grid", "viewMode": "weekly", "axis": "vertical" }
+      }
+    },
+    {
+      "name": "Kenneth",
+      "schedule": {
+        "name": "Kenneth",
+        "id": "sch-kenneth",
+        "themeId": "standard",
+        "isPrimary": false,
+        "events": [
+          { "id": "kn-lun", "title": "Ocupado", "color": "#7c3aed", "startHour": 19, "startMinute": 0, "endHour": 21, "endMinute": 0, "days": [1] },
+          { "id": "kn-mie", "title": "Ocupado", "color": "#7c3aed", "startHour": 18, "startMinute": 0, "endHour": 20, "endMinute": 0, "days": [3] },
+          { "id": "kn-vie", "title": "Ocupado", "color": "#7c3aed", "startHour": 18, "startMinute": 0, "endHour": 20, "endMinute": 0, "days": [5] }
+        ],
+        "settings": { "visibleDays": [1, 2, 3, 4, 5, 6, 0], "weekStartDay": 0, "startHour": 5, "endHour": 22, "use24h": false, "displayMode": "grid", "viewMode": "weekly", "axis": "vertical" }
+      }
+    },
+    {
+      "name": "Kenny",
+      "schedule": {
+        "name": "Kenny",
+        "id": "sch-kenny",
+        "themeId": "standard",
+        "isPrimary": false,
+        "events": [
+          { "id": "ky-mie", "title": "TEC", "color": "#0891b2", "startHour": 8, "startMinute": 0, "endHour": 16, "endMinute": 0, "days": [3] },
+          { "id": "ky-jue", "title": "TEC", "color": "#0891b2", "startHour": 12, "startMinute": 30, "endHour": 20, "endMinute": 30, "days": [4] },
+          { "id": "ky-vie", "title": "Virtual", "color": "#65a30d", "startHour": 8, "startMinute": 0, "endHour": 12, "endMinute": 30, "days": [5] }
+        ],
+        "settings": { "visibleDays": [1, 2, 3, 4, 5, 6, 0], "weekStartDay": 0, "startHour": 5, "endHour": 22, "use24h": false, "displayMode": "grid", "viewMode": "weekly", "axis": "vertical" }
+      }
+    },
+    {
+      "name": "Sebas",
+      "schedule": {
+        "name": "Sebas",
+        "id": "sch-sebas",
+        "themeId": "standard",
+        "isPrimary": false,
+        "events": [
+          { "id": "se-seg", "title": "Seguridad del Software", "color": "#0891b2", "startHour": 16, "startMinute": 10, "endHour": 19, "endMinute": 45, "days": [1] },
+          { "id": "se-pso", "title": "Principios de Sistemas Operativos", "color": "#ea580c", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [3] },
+          { "id": "se-cys", "title": "Computación y Sociedad", "color": "#0d9488", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [4] },
+          { "id": "se-sem", "title": "Seminario de Estudios Costarricenses", "color": "#db2777", "startHour": 13, "startMinute": 25, "endHour": 16, "endMinute": 5, "days": [4] },
+          { "id": "se-inv", "title": "Investigación de Operaciones", "color": "#2563eb", "startHour": 7, "startMinute": 55, "endHour": 11, "endMinute": 30, "days": [5] },
+          { "id": "se-en1", "title": "Entrenamiento", "color": "#65a30d", "startHour": 17, "startMinute": 0, "endHour": 21, "endMinute": 0, "days": [2, 3, 5] },
+          { "id": "se-en2", "title": "Entrenamiento", "color": "#65a30d", "startHour": 19, "startMinute": 0, "endHour": 21, "endMinute": 0, "days": [4] }
+        ],
+        "settings": { "visibleDays": [1, 2, 3, 4, 5, 6, 0], "weekStartDay": 0, "startHour": 5, "endHour": 22, "use24h": false, "displayMode": "grid", "viewMode": "weekly", "axis": "vertical" }
+      }
+    }
+  ]
+}

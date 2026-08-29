@@ -1,0 +1,651 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Schedule Conflicts</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --line:#e8eaed; --line2:#f0f1f3;
+  --text:#1f2328; --muted:#8b9096; --accent:#2563eb; --danger:#dc2626;
+  --ok:#059669; --warn:#d97706;
+  --hh:52px;           /* height of one hour row */
+  --gutter:66px;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  color:var(--text); background:var(--bg); display:flex; overflow:hidden;
+}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+input{font:inherit;color:inherit}
+
+/* ---------- icon rail ---------- */
+.rail{
+  width:74px; flex:none; background:var(--panel); border-right:1px solid var(--line);
+  display:flex; flex-direction:column; align-items:center; padding:10px 0; gap:2px;
+}
+.rail button{
+  width:60px; padding:9px 0 7px; border-radius:10px; color:#5b6067;
+  display:flex; flex-direction:column; align-items:center; gap:5px;
+  font-size:11px; letter-spacing:.01em;
+}
+.rail button:hover{background:#f2f3f5;color:var(--text)}
+.rail button.on{background:#eef3ff;color:var(--accent)}
+.rail hr{width:36px;border:0;border-top:1px solid var(--line);margin:8px 0}
+.rail svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---------- side panel ---------- */
+.panel{
+  width:312px; flex:none; background:var(--panel); border-right:1px solid var(--line);
+  display:flex; flex-direction:column; overflow:hidden;
+}
+.panel.hide{display:none}
+.phead{padding:16px 16px 12px;border-bottom:1px solid var(--line)}
+.ptitle{font-size:15px;font-weight:650;letter-spacing:-.01em}
+.psub{font-size:12px;color:var(--muted);margin-top:3px}
+
+.field{padding:12px 16px;border-bottom:1px solid var(--line)}
+.label{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+select{
+  width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fff;
+  font:inherit;color:inherit;cursor:pointer
+}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{
+  padding:5px 11px;border-radius:99px;border:1px solid var(--line);font-size:12.5px;
+  color:#4b5158;background:#fff;white-space:nowrap
+}
+.chip:hover{border-color:#cfd3d8}
+.chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.chip .n{opacity:.6;margin-left:5px;font-variant-numeric:tabular-nums}
+.chip.on .n{opacity:.75}
+
+.list{flex:1;overflow-y:auto;padding:8px 10px 24px}
+.row{
+  border-radius:10px; padding:9px 10px; display:flex; align-items:center; gap:9px;
+  cursor:pointer; position:relative;
+}
+.row:hover{background:#f5f6f8}
+.row.shown{background:#eef3ff}
+.row.ref{background:#fff5ec}
+.row.ref.shown{background:#fdeedd}
+.dot{width:9px;height:9px;border-radius:99px;flex:none}
+.nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.row.ref .nm::after{content:"reference";font-size:9.5px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:#c2410c;background:#ffe8d4;padding:2px 5px;border-radius:4px;margin-left:7px}
+.badge{
+  font-size:11.5px;font-weight:650;padding:2px 8px;border-radius:99px;font-variant-numeric:tabular-nums;
+  background:#eef0f2;color:#5b6067;flex:none
+}
+.badge.b0{background:#e7f6ef;color:var(--ok)}
+.badge.b1{background:#fdf0dc;color:var(--warn)}
+.badge.b2{background:#fdeaea;color:var(--danger)}
+.rowbtns{display:none;gap:2px;flex:none}
+.row:hover .rowbtns{display:flex}
+.rowbtns button{padding:4px;border-radius:6px;color:var(--muted);line-height:0}
+.rowbtns button:hover{background:#e6e8eb;color:var(--text)}
+.rowbtns svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.detail{margin:0 10px 8px;padding:8px 11px;background:#fbfbfc;border:1px solid var(--line);border-radius:9px;font-size:12.2px}
+.detail div{padding:3px 0;color:#4b5158;display:flex;gap:7px}
+.detail b{font-weight:600;color:var(--text);flex:none;width:96px;font-variant-numeric:tabular-nums}
+.empty{padding:40px 22px;text-align:center;color:var(--muted);font-size:13px;line-height:1.6}
+
+/* ---------- calendar ---------- */
+main{flex:1;min-width:0;display:flex;flex-direction:column;padding:14px;overflow:hidden}
+.toolbar{display:flex;align-items:center;gap:8px;padding:0 2px 12px}
+.seg{display:flex;background:#eceef1;border-radius:9px;padding:3px}
+.seg button{padding:5px 13px;border-radius:7px;font-size:12.5px;font-weight:500;color:#5b6067}
+.seg button.on{background:#fff;color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.spacer{flex:1}
+.hint{font-size:12.5px;color:var(--muted)}
+.tgl{display:flex;align-items:center;gap:6px;font-size:12.5px;color:#5b6067;cursor:pointer}
+
+.cal{
+  flex:1;min-height:0;background:#fff;border:1px solid var(--line);border-radius:12px;
+  display:flex;flex-direction:column;overflow:hidden
+}
+.calhead{display:flex;border-bottom:1px solid var(--line);flex:none}
+.calhead .gut{width:var(--gutter);flex:none;border-right:1px solid var(--line)}
+.dh{
+  flex:1;min-width:0;padding:14px 6px;text-align:center;font-size:11.5px;font-weight:700;
+  letter-spacing:.1em;color:#5b6067;border-right:1px solid var(--line)
+}
+.dh:last-child{border-right:0}
+.calbody{flex:1;overflow-y:auto;display:flex;position:relative}
+.gut{width:var(--gutter);flex:none;border-right:1px solid var(--line);position:relative;background:#fcfcfd}
+.hl{position:absolute;right:9px;font-size:11px;color:#9aa0a6;font-variant-numeric:tabular-nums;white-space:nowrap}
+.days{flex:1;display:flex;min-width:0}
+.dc{
+  flex:1;min-width:0;position:relative;border-right:1px solid var(--line);
+  background-image:repeating-linear-gradient(to bottom,
+    transparent 0, transparent calc(var(--hh) - 1px),
+    var(--line2) calc(var(--hh) - 1px), var(--line2) var(--hh));
+}
+.dc:last-child{border-right:0}
+.ev{
+  position:absolute;border-radius:7px;padding:6px 8px;overflow:hidden;
+  font-size:12px;line-height:1.3;cursor:default
+}
+.ev .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev .s{opacity:.72;font-size:11px;margin-top:1px;white-space:nowrap}
+.ev .o{opacity:.62;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px}
+.ev.clash{box-shadow:inset 0 0 0 1.6px var(--danger)}
+.clashband{
+  position:absolute;left:0;right:0;pointer-events:none;border-radius:4px;
+  background:repeating-linear-gradient(45deg,rgba(220,38,38,.20) 0 5px,rgba(220,38,38,0) 5px 10px);
+  border-top:1px solid rgba(220,38,38,.45);border-bottom:1px solid rgba(220,38,38,.45)
+}
+.busy{position:absolute;left:3px;right:3px;border-radius:6px;padding:5px 7px;font-size:11px;
+  color:#7f1d1d;overflow:hidden}
+.busy .c{font-weight:700}
+.busy .w{opacity:.75;font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.free{position:absolute;left:3px;right:3px;border-radius:6px;background:rgba(5,150,105,.10);
+  box-shadow:inset 0 0 0 1px rgba(5,150,105,.28)}
+
+/* ---------- modal ---------- */
+.scrim{position:fixed;inset:0;background:rgba(20,22,26,.42);display:flex;align-items:center;
+  justify-content:center;z-index:50;padding:20px}
+.modal{background:#fff;border-radius:14px;width:min(460px,100%);max-height:82vh;display:flex;
+  flex-direction:column;box-shadow:0 18px 50px rgba(0,0,0,.22);overflow:hidden}
+.modal h3{margin:0;padding:18px 20px 6px;font-size:16px;font-weight:650}
+.modal p{margin:0;padding:0 20px 14px;font-size:13px;color:var(--muted)}
+.mbody{overflow-y:auto;padding:0 20px}
+.mrow{margin-bottom:12px}
+.mrow label{display:block;font-size:11.5px;color:var(--muted);margin-bottom:5px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mrow input{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px}
+.mrow input:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+.mfoot{display:flex;justify-content:flex-end;gap:8px;padding:16px 20px;border-top:1px solid var(--line);margin-top:6px}
+.btn{padding:8px 15px;border-radius:9px;border:1px solid var(--line);font-size:13px;font-weight:500}
+.btn:hover{background:#f5f6f8}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.pri:hover{background:#1d4fd7}
+
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1f2328;color:#fff;
+  padding:10px 16px;border-radius:10px;font-size:13px;z-index:60;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.drop{position:fixed;inset:0;background:rgba(37,99,235,.10);border:3px dashed var(--accent);
+  z-index:70;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:600;color:var(--accent)}
+</style>
+</head>
+<body>
+
+<nav class="rail">
+  <button id="bImport" title="Import one or more schedule JSON files">
+    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add</button>
+  <button id="bPanel" class="on" title="Toggle the schedule list">
+    <svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>List</button>
+  <hr>
+  <button id="bExport" title="Export every schedule as one grouped file">
+    <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>Export</button>
+  <button id="bPrint" title="Print the current view">
+    <svg viewBox="0 0 24 24"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/></svg>Print</button>
+  <hr>
+  <button id="bClear" title="Remove every schedule">
+    <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>Clear</button>
+</nav>
+
+<aside class="panel" id="panel">
+  <div class="phead">
+    <div class="ptitle">Schedules</div>
+    <div class="psub" id="summary">Nothing imported yet</div>
+  </div>
+  <div class="field">
+    <div class="label">Compare against</div>
+    <select id="refSel"></select>
+  </div>
+  <div class="field">
+    <div class="label">Conflicts with reference</div>
+    <div class="chips" id="filters"></div>
+  </div>
+  <div class="list" id="list"></div>
+</aside>
+
+<main>
+  <div class="toolbar">
+    <div class="seg">
+      <button data-view="calendar" class="on">Calendar</button>
+      <button data-view="busy">Busy map</button>
+    </div>
+    <label class="tgl" id="onlyWrap"><input type="checkbox" id="onlyClash"> Only clashing time</label>
+    <div class="spacer"></div>
+    <label class="tgl"><input type="checkbox" id="h24"> 24h</label>
+    <div class="hint" id="hint"></div>
+  </div>
+  <div class="cal">
+    <div class="calhead"><div class="gut"></div><div id="dayheads" style="flex:1;display:flex"></div></div>
+    <div class="calbody"><div class="gut" id="gutter"></div><div class="days" id="days"></div></div>
+  </div>
+</main>
+
+<input type="file" id="file" accept=".json,application/json" multiple hidden>
+
+<script>
+"use strict";
+const DAY_NAMES = ["SUNDAY","MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY"];
+const PALETTE = ["#2563eb","#db2777","#0d9488","#7c3aed","#ea580c","#0891b2","#65a30d","#c026d3","#dc2626","#4f46e5"];
+const KEY = "schedule-conflicts.v1";
+
+const state = {
+  people: [],            // {id,name,color,events:[],raw}
+  refId: null,
+  shown: new Set(),      // ids drawn on the calendar besides the reference
+  filter: "all",
+  view: "calendar",
+  use24h: false,
+  onlyClash: false,
+  openDetail: null,
+};
+
+/* ---------------- data ---------------- */
+
+const uid = () => Math.random().toString(36).slice(2, 10);
+const mins = e => [e.startHour * 60 + (e.startMinute || 0), e.endHour * 60 + (e.endMinute || 0)];
+
+function fmt(m){
+  const h = Math.floor(m / 60), mm = String(m % 60).padStart(2, "0");
+  if (state.use24h) return `${String(h).padStart(2,"0")}:${mm}`;
+  const ap = h < 12 ? "AM" : "PM", h12 = h % 12 === 0 ? 12 : h % 12;
+  return mm === "00" ? `${h12} ${ap}` : `${h12}:${mm} ${ap}`;
+}
+
+// Accepts: a single schedulebuilder export, our grouped export, or a bare array of either.
+function parseSchedules(obj){
+  if (Array.isArray(obj)) return obj.flatMap(parseSchedules);
+  if (obj && Array.isArray(obj.schedules)) {
+    return obj.schedules.flatMap(s => {
+      const inner = s.schedule || s;
+      return parseSchedules({ ...inner, name: s.name || inner.name });
+    });
+  }
+  const s = (obj && obj.schedule) || obj;
+  if (!s || !Array.isArray(s.events)) return [];
+  return [{ name: String(s.name || "").trim(), raw: s }];
+}
+
+function blocks(person){
+  const out = [];
+  for (const e of person.events) {
+    const [s, x] = mins(e);
+    if (!(x > s)) continue;                       // ponytail: drop zero/negative spans, no wrap-past-midnight support
+    for (const d of (e.days || [])) out.push({ day: d, s, e: x, ev: e, owner: person.id });
+  }
+  return out;
+}
+
+// Pairwise overlaps between two people. One entry per overlapping pair of events.
+function conflicts(a, b){
+  const A = blocks(a), B = blocks(b), out = [];
+  for (const x of A) for (const y of B) {
+    if (x.day !== y.day || x.s >= y.e || y.s >= x.e) continue;
+    out.push({ day: x.day, s: Math.max(x.s, y.s), e: Math.min(x.e, y.e), a: x.ev, b: y.ev });
+  }
+  return out.sort((p, q) => p.day - q.day || p.s - q.s);
+}
+
+// ponytail: O(n^2) sweep; a week of classes is a few dozen intervals.
+function coverage(intervals){
+  const pts = [...new Set(intervals.flatMap(i => [i.s, i.e]))].sort((a, b) => a - b);
+  const segs = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const s = pts[i], e = pts[i + 1];
+    const owners = [...new Set(intervals.filter(v => v.s < e && v.e > s).map(v => v.owner))];
+    if (owners.length) {
+      const last = segs[segs.length - 1];
+      if (last && last.e === s && last.owners.join() === owners.join()) last.e = e;
+      else segs.push({ s, e, owners });
+    }
+  }
+  return segs;
+}
+
+const person = id => state.people.find(p => p.id === id);
+const ref = () => person(state.refId);
+const conflictCount = p => (!state.refId || p.id === state.refId) ? null : conflicts(ref(), p).length;
+
+function bucket(n){ return n === 0 ? "0" : n === 1 ? "1" : n === 2 ? "2" : "3+"; }
+
+function visiblePeople(){
+  const ids = new Set(state.shown);
+  if (state.refId) ids.add(state.refId);
+  return [...ids].map(person).filter(Boolean);
+}
+
+/* ---------------- persistence ---------------- */
+
+function save(){
+  localStorage.setItem(KEY, JSON.stringify({
+    people: state.people.map(p => ({ id: p.id, name: p.name, color: p.color, raw: p.raw })),
+    refId: state.refId, shown: [...state.shown], use24h: state.use24h,
+  }));
+}
+function load(){
+  try {
+    const d = JSON.parse(localStorage.getItem(KEY) || "null");
+    if (!d) return;
+    state.people = d.people.map(p => ({ ...p, events: p.raw.events || [] }));
+    state.refId = d.refId && person(d.refId) ? d.refId : (state.people[0] || {}).id || null;
+    state.shown = new Set((d.shown || []).filter(id => person(id)));
+    state.use24h = !!d.use24h;
+    h24.checked = state.use24h;
+  } catch { /* ignore a corrupt store */ }
+}
+
+/* ---------------- import ---------------- */
+
+async function addFiles(files){
+  const pending = [];
+  for (const f of files) {
+    let parsed;
+    try { parsed = parseSchedules(JSON.parse(await f.text())); }
+    catch { toast(`${f.name} is not valid JSON`); continue; }
+    if (!parsed.length) { toast(`${f.name} has no schedule in it`); continue; }
+    const base = f.name.replace(/\.json$/i, "").replace(/[-_]?schedule[-_]?/gi, " ").trim();
+    parsed.forEach((p, i) => pending.push({ ...p, hint: parsed.length > 1 ? `${f.name} — #${i + 1}` : f.name, base }));
+  }
+  if (!pending.length) return;
+
+  const needName = pending.filter(p => !p.name);
+  if (needName.length) {
+    const names = await askNames(needName);
+    if (!names) return;                                  // cancelled
+    needName.forEach((p, i) => p.name = names[i]);
+  }
+
+  for (const p of pending) {
+    let name = p.name, n = 2;
+    while (state.people.some(q => q.name.toLowerCase() === name.toLowerCase())) name = `${p.name} (${n++})`;
+    const id = uid();
+    state.people.push({ id, name, color: PALETTE[state.people.length % PALETTE.length], events: p.raw.events, raw: p.raw });
+    if (!state.refId) state.refId = id;
+  }
+  save(); render();
+  toast(`Added ${pending.length} schedule${pending.length > 1 ? "s" : ""}`);
+}
+
+function askNames(items){
+  return new Promise(resolve => {
+    const scrim = document.createElement("div");
+    scrim.className = "scrim";
+    scrim.innerHTML = `
+      <div class="modal">
+        <h3>Who do these belong to?</h3>
+        <p>Every schedule needs a name. These files didn't carry one.</p>
+        <div class="mbody">${items.map((it, i) => `
+          <div class="mrow"><label>${esc(it.hint)}</label>
+          <input data-i="${i}" value="${esc(it.base || "")}" placeholder="Name"></div>`).join("")}</div>
+        <div class="mfoot"><button class="btn" data-x>Cancel</button><button class="btn pri" data-ok>Add</button></div>
+      </div>`;
+    document.body.appendChild(scrim);
+    const inputs = [...scrim.querySelectorAll("input")];
+    inputs[0].focus(); inputs[0].select();
+    const done = v => { scrim.remove(); resolve(v); };
+    const ok = () => {
+      const vals = inputs.map(i => i.value.trim());
+      const bad = inputs.find((i, k) => !vals[k]);
+      if (bad) { bad.focus(); toast("Every schedule needs a name"); return; }
+      done(vals);
+    };
+    scrim.querySelector("[data-ok]").onclick = ok;
+    scrim.querySelector("[data-x]").onclick = () => done(null);
+    scrim.onkeydown = e => { if (e.key === "Enter") ok(); if (e.key === "Escape") done(null); };
+    scrim.onclick = e => { if (e.target === scrim) done(null); };
+  });
+}
+
+function exportGroup(){
+  if (!state.people.length) return toast("Nothing to export");
+  const data = {
+    format: "schedulebuilder-group", version: 1,
+    schedules: state.people.map(p => ({ name: p.name, schedule: { ...p.raw, name: p.name } })),
+  };
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  a.download = "schedules-group.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* ---------------- render ---------------- */
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const $ = id => document.getElementById(id);
+
+function render(){ renderPanel(); renderCal(); }
+
+function renderPanel(){
+  const ppl = state.people;
+  const counts = { "0": 0, "1": 0, "2": 0, "3+": 0 };
+  const others = ppl.filter(p => p.id !== state.refId);
+  others.forEach(p => counts[bucket(conflictCount(p))]++);
+  const clean = counts["0"];
+
+  $("summary").textContent = ppl.length
+    ? `${ppl.length} schedule${ppl.length > 1 ? "s" : ""} · ${clean} with no conflict`
+    : "Nothing imported yet";
+
+  $("refSel").innerHTML = ppl.map(p => `<option value="${p.id}"${p.id === state.refId ? " selected" : ""}>${esc(p.name)}</option>`).join("")
+    || `<option>—</option>`;
+
+  const defs = [["all", "All", others.length], ["0", "0", counts["0"]], ["1", "1", counts["1"]],
+                ["2", "2", counts["2"]], ["3+", "3+", counts["3+"]], ["any", "Any conflict", others.length - counts["0"]]];
+  $("filters").innerHTML = defs.map(([k, l, n]) =>
+    `<button class="chip${state.filter === k ? " on" : ""}" data-f="${k}">${l}<span class="n">${n}</span></button>`).join("");
+
+  const keep = p => p.id === state.refId || state.filter === "all"
+    || (state.filter === "any" ? conflictCount(p) > 0 : bucket(conflictCount(p)) === state.filter);
+
+  const rows = ppl.filter(keep).map(p => {
+    const n = conflictCount(p);
+    const badge = n === null ? "" :
+      `<span class="badge b${n === 0 ? 0 : n === 1 ? 1 : 2}">${n}</span>`;
+    const cls = `row${state.shown.has(p.id) ? " shown" : ""}${p.id === state.refId ? " ref" : ""}`;
+    const detail = state.openDetail === p.id ? detailHtml(p) : "";
+    return `<div class="${cls}" data-id="${p.id}">
+        <span class="dot" style="background:${p.color}"></span>
+        <span class="nm">${esc(p.name)}</span>${badge}
+        <span class="rowbtns">
+          <button data-act="ref" title="Use as reference"><svg viewBox="0 0 24 24"><path d="M12 3l2.6 5.6 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.4l6-.8z"/></svg></button>
+          <button data-act="del" title="Remove"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+        </span></div>${detail}`;
+  }).join("");
+
+  $("list").innerHTML = rows || `<div class="empty">${ppl.length
+    ? "No schedule matches this filter."
+    : "Drop schedule JSON files anywhere, or hit <b>Add</b>.<br><br>Works with single exports from schedulebuilder.net and with grouped files exported here."}</div>`;
+}
+
+function detailHtml(p){
+  if (p.id === state.refId) return "";
+  const cs = conflicts(ref(), p);
+  if (!cs.length) return `<div class="detail"><div style="color:var(--ok);font-weight:600">No overlap with ${esc(ref().name)}</div></div>`;
+  return `<div class="detail">${cs.map(c =>
+    `<div><b>${DAY_NAMES[c.day].slice(0,3)} ${fmt(c.s)}</b><span>${esc(c.a.title || "Untitled")} ↔ ${esc(c.b.title || "Untitled")}</span></div>`).join("")}</div>`;
+}
+
+function hourRange(){
+  const ppl = visiblePeople();
+  const all = ppl.flatMap(blocks);
+  if (!all.length) return [7, 21];
+  let lo = Math.floor(Math.min(...all.map(b => b.s)) / 60);
+  let hi = Math.ceil(Math.max(...all.map(b => b.e)) / 60);
+  const st = ppl.map(p => p.raw.settings || {});
+  st.forEach(s => { if (Number.isFinite(s.startHour)) lo = Math.min(lo, s.startHour);
+                    if (Number.isFinite(s.endHour)) hi = Math.max(hi, s.endHour); });
+  return [Math.max(0, lo), Math.min(24, Math.max(hi, lo + 3))];
+}
+
+function renderCal(){
+  const [lo, hi] = hourRange();
+  const HH = 52, top = m => (m - lo * 60) / 60 * HH, hgt = (s, e) => Math.max(18, (e - s) / 60 * HH);
+
+  $("dayheads").innerHTML = DAY_NAMES.map(d => `<div class="dh">${d}</div>`).join("");
+  $("gutter").innerHTML = Array.from({ length: hi - lo + 1 }, (_, i) =>
+    `<div class="hl" style="top:${i * HH + 4}px">${fmt((lo + i) * 60)}</div>`).join("")
+    + `<div style="height:${(hi - lo) * HH + 24}px"></div>`;
+
+  const ppl = visiblePeople();
+  $("hint").textContent = state.view === "busy"
+    ? `${ppl.length} schedule${ppl.length === 1 ? "" : "s"} in the map`
+    : (ppl.length ? `Showing ${ppl.map(p => p.name).join(", ")}` : "");
+  $("onlyWrap").style.display = state.view === "busy" ? "" : "none";
+
+  const html = DAY_NAMES.map((_, day) =>
+    `<div class="dc" style="height:${(hi - lo) * HH + 24}px">${
+      state.view === "busy" ? busyDay(day, ppl, top, hgt) : calDay(day, ppl, top, hgt)
+    }</div>`).join("");
+  $("days").innerHTML = html;
+}
+
+function calDay(day, ppl, top, hgt){
+  const bs = ppl.flatMap(blocks).filter(b => b.day === day).sort((a, b) => a.s - b.s || b.e - a.e);
+  if (!bs.length) return "";
+
+  // side-by-side columns for overlapping blocks
+  let cluster = [], clusterEnd = -1, out = [];
+  const flush = () => {
+    const cols = [];
+    for (const b of cluster) {
+      let c = cols.findIndex(col => col[col.length - 1].e <= b.s);
+      if (c < 0) { c = cols.length; cols.push([]); }
+      cols[c].push(b); b.col = c;
+    }
+    cluster.forEach(b => b.cols = cols.length);
+    out.push(...cluster); cluster = [];
+  };
+  for (const b of bs) {
+    if (cluster.length && b.s >= clusterEnd) flush();
+    cluster.push(b); clusterEnd = Math.max(clusterEnd, b.e);
+  }
+  flush();
+
+  // ranges where two different people are busy at once
+  const clash = coverage(bs).filter(s => s.owners.length > 1);
+  const multi = ppl.length > 1;
+
+  return out.map(b => {
+    const w = 100 / b.cols, left = b.col * w;
+    const color = b.ev.color || person(b.owner).color;
+    const bad = clash.some(c => c.s < b.e && c.e > b.s);
+    return `<div class="ev${bad ? " clash" : ""}" style="top:${top(b.s)}px;height:${hgt(b.s, b.e)}px;
+        left:calc(${left}% + 3px);width:calc(${w}% - 6px);background:${color}1f;color:${color}"
+        title="${esc(person(b.owner).name)} — ${esc(b.ev.title || "")}\n${fmt(b.s)} – ${fmt(b.e)}">
+      ${multi ? `<div class="o">${esc(person(b.owner).name)}</div>` : ""}
+      <div class="t">${esc(b.ev.title || "Untitled")}</div>
+      <div class="s">${fmt(b.s)} – ${fmt(b.e)}</div></div>`;
+  }).join("")
+  + clash.map(c => `<div class="clashband" style="top:${top(c.s)}px;height:${hgt(c.s, c.e)}px"></div>`).join("");
+}
+
+function busyDay(day, ppl, top, hgt){
+  const iv = ppl.flatMap(blocks).filter(b => b.day === day);
+  const segs = coverage(iv).filter(s => !state.onlyClash || s.owners.length > 1);
+  const total = Math.max(1, ppl.length);
+  return segs.map(s => {
+    const a = 0.10 + 0.62 * (s.owners.length / total);
+    const names = s.owners.map(o => person(o).name).join(", ");
+    return `<div class="busy" style="top:${top(s.s)}px;height:${hgt(s.s, s.e)}px;background:rgba(220,38,38,${a.toFixed(2)})"
+        title="${esc(names)}\n${fmt(s.s)} – ${fmt(s.e)}">
+      <div class="c">${s.owners.length}/${ppl.length} busy</div>
+      <div class="w">${esc(names)}</div></div>`;
+  }).join("");
+}
+
+/* ---------------- events ---------------- */
+
+function toast(msg){
+  document.querySelectorAll(".toast").forEach(t => t.remove());
+  const t = document.createElement("div");
+  t.className = "toast"; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2600);
+}
+
+$("bImport").onclick = () => $("file").click();
+$("file").onchange = e => { addFiles([...e.target.files]); e.target.value = ""; };
+$("bExport").onclick = exportGroup;
+$("bPrint").onclick = () => window.print();
+$("bPanel").onclick = e => { $("panel").classList.toggle("hide"); e.currentTarget.classList.toggle("on"); };
+$("bClear").onclick = () => {
+  if (!state.people.length || !confirm("Remove every imported schedule?")) return;
+  state.people = []; state.refId = null; state.shown.clear(); state.openDetail = null;
+  save(); render();
+};
+
+$("refSel").onchange = e => {
+  state.refId = e.target.value; state.shown.delete(state.refId); state.openDetail = null;
+  save(); render();
+};
+
+$("filters").onclick = e => {
+  const b = e.target.closest("[data-f]"); if (!b) return;
+  state.filter = b.dataset.f; renderPanel();
+};
+
+$("list").onclick = e => {
+  const row = e.target.closest(".row"); if (!row) return;
+  const id = row.dataset.id, act = (e.target.closest("[data-act]") || {}).dataset;
+  if (act && act.act === "ref") { state.refId = id; state.shown.delete(id); state.openDetail = null; }
+  else if (act && act.act === "del") {
+    state.people = state.people.filter(p => p.id !== id);
+    state.shown.delete(id);
+    if (state.refId === id) state.refId = (state.people[0] || {}).id || null;
+    if (state.openDetail === id) state.openDetail = null;
+  }
+  else if (id === state.refId) { /* reference is always drawn */ }
+  else {
+    state.shown.has(id) ? state.shown.delete(id) : state.shown.add(id);
+    state.openDetail = state.shown.has(id) ? id : null;
+  }
+  save(); render();
+};
+
+document.querySelector(".seg").onclick = e => {
+  const b = e.target.closest("[data-view]"); if (!b) return;
+  state.view = b.dataset.view;
+  document.querySelectorAll(".seg button").forEach(x => x.classList.toggle("on", x === b));
+  renderCal();
+};
+$("onlyClash").onchange = e => { state.onlyClash = e.target.checked; renderCal(); };
+$("h24").onchange = e => { state.use24h = e.target.checked; save(); render(); };
+
+let dragEl = null;
+addEventListener("dragover", e => {
+  e.preventDefault();
+  if (dragEl) return;
+  dragEl = document.createElement("div");
+  dragEl.className = "drop"; dragEl.textContent = "Drop schedule JSON";
+  document.body.appendChild(dragEl);
+});
+addEventListener("dragleave", e => { if (e.clientX === 0 && e.clientY === 0) killDrag(); });
+addEventListener("drop", e => {
+  e.preventDefault(); killDrag();
+  addFiles([...e.dataTransfer.files].filter(f => /\.json$/i.test(f.name)));
+});
+function killDrag(){ if (dragEl) { dragEl.remove(); dragEl = null; } }
+
+load();
+render();
+
+/* ---------------- self-check ---------------- */
+// ponytail: one runnable check for the two bits of real logic. Run with ?test in the URL.
+if (location.search.includes("test")) {
+  const mk = (id, evs) => ({ id, name: id, color: "#000", events: evs, raw: { events: evs } });
+  const A = mk("a", [{ title: "x", startHour: 8, startMinute: 0, endHour: 10, endMinute: 0, days: [1, 3] }]);
+  const B = mk("b", [{ title: "y", startHour: 9, startMinute: 30, endHour: 11, endMinute: 0, days: [1] },
+                     { title: "z", startHour: 10, startMinute: 0, endHour: 12, endMinute: 0, days: [3] }]);
+  state.people = [A, B];
+  console.assert(conflicts(A, B).length === 1, "one overlap: Mon 9:30-10, Wed touches at 10 only");
+  console.assert(conflicts(A, B)[0].s === 570 && conflicts(A, B)[0].e === 600, "overlap window is 9:30-10:00");
+  const cov = coverage([{ s: 0, e: 10, owner: "a" }, { s: 5, e: 20, owner: "b" }]);
+  console.assert(cov.length === 3 && cov[1].owners.length === 2, "sweep splits into 0-5, 5-10 (both), 10-20");
+  console.assert(parseSchedules({ format: "schedulebuilder-group", schedules: [{ name: "P", schedule: { events: [] } }] })[0].name === "P",
+    "grouped format carries the name");
+  state.people = []; state.refId = null;
+  console.log("self-check done");
+}
+</script>
+</body>
+</html>

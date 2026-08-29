@@ -4,6 +4,3 @@
 [submodule "stignore"]
 	path = stignore
 	url = https://github.com/DavidMGDev/stignore.git
-[submodule "txt-forge-src"]
-	path = txt-forge-src
-	url = https://github.com/DavidMGDev/txt-forge.git

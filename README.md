@@ -13,7 +13,8 @@ your own profile, except where a script says otherwise.
 | [`remappings/`](remappings) | AutoHotkey v2. `HyperRemap.ahk` kills Caps Lock and turns it into a hyper key for symbols you'd otherwise reach for with a modifier (`Caps+q` → `@`, `Caps+j` → `{}`, and so on). `BlackScreen.ahk` blanks every monitor on `Ctrl+Alt+Shift+B` and hides the cursor, any key wakes it. |
 | [`steam/`](steam) | Toggles a firewall rule that blocks `steam.exe` outbound, to force offline mode. Self-elevates, shuts Steam down first, restarts it after. |
 | [`skills/windows-context-menu/`](skills/windows-context-menu) | Reference for driving the Explorer right-click menu from the registry: how entries are ordered, how to place one where you want it, and how to fix an item that shows up twice. |
-| [`misc/th901-schedule/`](misc/th901-schedule) | TH901 group schedule viewer, a single HTML page over a JSON file. |
+| [`th901-schedule/`](th901-schedule) | TH901 group schedule viewer, a single HTML page over a JSON file. Open `schedule-conflicts.html`, no build step. |
+| [`clipboard-splash/`](clipboard-splash) | Tauri + Svelte clipboard viewer. Scaffold only so far: `src-tauri` has no `Cargo.toml` or `tauri.conf.json` yet, so it does not build. |
 
 ## Submodules
 
@@ -25,7 +26,6 @@ remote.
 | --- | --- |
 | [`claude-init/`](https://github.com/DavidMGDev/claude-init) | One command to set a folder up for Claude Code: installs a fixed set of skills, optionally starts a git repo, opens a session. |
 | [`stignore/`](https://github.com/DavidMGDev/stignore) | Manage a Syncthing `.stignore` file from a browser UI, scoped to the folder you run it in. |
-| [`txt-forge-src/`](https://github.com/DavidMGDev/txt-forge) | Turn a code folder into AI-ready text files, splitting them to fit model context windows. |
 
 ## Setting up a new machine
 

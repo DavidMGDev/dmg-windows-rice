@@ -101,12 +101,12 @@ load-bearing. Windows builds this stretch of the menu in a fixed order:
 2. The shell's own items: View, Sort by, Group by, Refresh, Paste.
 3. Packaged `IExplorerCommand` handlers. Open in Terminal is one, shipped by
    the Windows Terminal appx.
-4. `shellex\ContextMenuHandlers` extensions, such as PowerRename.
-5. Static `shell` verbs, sorted alphabetically by key name.
+4. Static `shell` verbs, sorted alphabetically by key name.
+5. Legacy `shellex\ContextMenuHandlers` extensions.
 6. Give access to, New, Properties.
 
-A static verb can't be placed inside groups 3 or 4, so the closest it can get
-to Open in Terminal is the head of group 5. `Position` doesn't help: it accepts
+A static verb can't be placed inside group 3, so the closest it can get to Open
+in Terminal is the head of group 4. `Position` doesn't help: it accepts
 only `Top` or `Bottom`, and `Top` throws the entry above View, at the very top
 of the menu. That leaves sort order as the only fine-grained lever, so the key
 is named to land ahead of `git_gui` and `git_shell`.
@@ -117,6 +117,10 @@ of machinery for one menu item.
 
 `cmd` and `Powershell` are registered under the same key but carry an
 `Extended` value, which hides them unless you hold Shift while right-clicking.
+
+The full reference for all of this, including how to de-duplicate an entry that
+registers itself both ways, is in
+[`skills/windows-context-menu`](../skills/windows-context-menu/SKILL.md).
 
 ### Windows 11 and the classic menu
 

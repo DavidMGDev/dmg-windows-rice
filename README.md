@@ -20,8 +20,8 @@ your own profile, except where a script says otherwise.
 
 `skills/` holds the Claude Code skills I wrote, one folder per skill. It is the
 **source of truth**: `claude-init/skills/` is a mirror of it, so a new machine
-gets these from `claude-init` along with the `mattpocock-skills` plugin and
-`no-ai-slop`.
+gets these from `claude-init` alongside the plugins it installs
+(`mattpocock-skills`, `ponytail`, `impeccable`) and `no-ai-slop`.
 
 | | |
 | --- | --- |
@@ -73,9 +73,9 @@ Then, per tool:
   after a reboot.
 - **Steam toggle:** run it when you want it, nothing to install.
 - **Skills:** `cd claude-init && npm link`, then run `claude-init` in any repo.
-  It installs everything in `skills/`, the `mattpocock-skills` plugin and
-  `no-ai-slop` into `~/.claude/skills/`, then opens Claude on
-  `/setup-matt-pocock-skills`.
+  It shows a picker of everything in `skills/` plus the `mattpocock-skills`,
+  `ponytail` and `impeccable` plugins and `no-ai-slop`. One `enter` installs
+  what you ticked and opens Claude, running any setup the selection needs.
 
 To pull the submodules up to their latest published commits later:
 

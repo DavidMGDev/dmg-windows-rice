@@ -9,9 +9,13 @@ use tauri_plugin_autostart::{ManagerExt, MacosLauncher};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 /// Tried in order; the first one Windows will hand us wins.
-/// Super+Shift+V mirrors Win+V (which the shell owns and will not release).
-/// The rest are fallbacks for when another app already holds the primary.
-const HOTKEYS: [&str; 3] = ["Super+Shift+KeyV", "Ctrl+Alt+KeyV", "Ctrl+Shift+Backquote"];
+///
+/// Win+V and Win+Shift+V are both refused: the shell reserves them and
+/// `RegisterHotKey` fails, so neither is worth trying. Ctrl+Alt+V keeps the
+/// paste mnemonic and is clear of the usual conflicts (Ctrl+Shift+V is
+/// paste-as-plain-text in browsers and VS Code; Ctrl+` toggles the VS Code
+/// terminal).
+const HOTKEYS: [&str; 3] = ["Ctrl+Alt+KeyV", "Ctrl+Shift+Backquote", "Ctrl+Alt+KeyB"];
 
 /// Gap between the cursor and the panel, in physical pixels.
 const GAP: i32 = 14;
@@ -145,6 +149,7 @@ pub fn run() {
             let handle = app.handle();
             let _ = handle.autolaunch().enable();
 
+            let mut active = "none";
             for hotkey in HOTKEYS {
                 let registered = handle.global_shortcut().on_shortcut(hotkey, |app, _, event| {
                     if event.state() == ShortcutState::Pressed {
@@ -152,16 +157,20 @@ pub fn run() {
                     }
                 });
                 if registered.is_ok() {
+                    active = hotkey;
                     break;
                 }
                 eprintln!("hotkey {hotkey} unavailable, trying next");
             }
+            // Which one took is not guessable from outside, so surface it.
+            let label = active.replace("Key", "").replace("Backquote", "`");
+            eprintln!("hotkey active: {label}");
 
             let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("Clipboard Splash")
+                .tooltip(format!("Clipboard Splash  ({label})"))
                 .menu(&Menu::with_items(app, &[&show, &quit])?)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {

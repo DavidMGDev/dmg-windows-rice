@@ -17,13 +17,17 @@ starts with `---`). There is no list of skill names anywhere.
 ## What is not mirrored
 
 - **This skill.** It only makes sense inside the rice repo, so it is excluded.
-- **`mattpocock-skills`.** A marketplace plugin, not files. claude-init
-  installs it via `claude plugin install` and it updates itself. Copying 35
-  plugin skills in here would just be a stale fork.
+- **Plugins** (`mattpocock-skills`, `ponytail`, `impeccable`). Marketplaces,
+  not files. claude-init installs them with `claude plugin install` and they
+  update themselves. Copying their skills in here would just be a stale fork.
 - **`no-ai-slop`.** Downloaded fresh from upstream on every claude-init run.
 
-Both of those live in the `PLUGINS` / `REMOTE_SKILLS` lists at the top of
+Those live in the `PLUGINS` / `REMOTE_SKILLS` lists at the top of
 `bin/claude-init.js`. Edit those by hand; only the local folder is synced.
+
+A plugin entry can carry a `setup` slash command, which claude-init runs in
+Claude Code after installing. That is a property of the entry, not of this
+sync, so adding a skill here never changes what setup runs.
 
 ## Steps
 

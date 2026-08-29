@@ -626,7 +626,8 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px;
-    background: rgba(32, 32, 32, 0.99);
+    /* Fully opaque: at 0.99 the list ghosts through. */
+    background: #202020;
   }
   .field {
     background: var(--layer);

@@ -1,0 +1,9 @@
+[submodule "claude-init"]
+	path = claude-init
+	url = https://github.com/DavidMGDev/claude-init.git
+[submodule "stignore"]
+	path = stignore
+	url = https://github.com/DavidMGDev/stignore.git
+[submodule "txt-forge-src"]
+	path = txt-forge-src
+	url = https://github.com/DavidMGDev/txt-forge.git

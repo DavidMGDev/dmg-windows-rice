@@ -17,11 +17,13 @@ boilerplate. Tauri + Svelte 5, no runtime beyond WebView2.
 | Type in the search box | Flat search across every folder; `Enter` copies the top hit |
 | `Esc` | Close the editor, or dismiss the overlay |
 
-Anything that takes focus away dismisses the overlay, including focus changes
-that raise no blur event, such as alt-tab or an app stealing focus as it opens.
-A watcher checks the foreground window four times a second and closes the panel
-if it is on screen without focus. `scripts/test-dismiss.ps1` checks that against
-a running release build.
+A click outside the panel closes it, and so does losing focus. The click is
+watched for separately because focus is not reliable here: opened from the
+AutoHotkey script the panel is often never the foreground window at all, since a
+background process asking for foreground is what Windows' foreground lock
+refuses, and a window that was never focused raises no blur event when you click
+away from it. `scripts/test-dismiss.ps1` checks the panel is not closed out from
+under you while it sits there unfocused.
 
 Every binding in the list is registered, not just the first that succeeds, so
 the overlay answers to whichever you reach for. Which ones took is printed to

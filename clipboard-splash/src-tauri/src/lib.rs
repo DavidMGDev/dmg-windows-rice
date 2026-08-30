@@ -192,45 +192,73 @@ fn show_near_cursor(win: &WebviewWindow) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Dismiss-on-blur is driven by an event, and an event is a transition: if the
-/// window loses focus without one landing — alt-tabbed away, or an app grabbing
-/// focus as it opens — it sits there visible with nothing left to dismiss it.
-/// Clicking outside then changes no focus state either, so the only way out is
-/// to click the panel and click away again. Watch the invariant instead of the
-/// transition: visible but not focused means gone.
+/// Dismiss-on-blur is driven by an event, and an event is a transition, so a
+/// window that loses focus without one landing sits there with nothing left to
+/// dismiss it: clicking outside changes no focus state either, and the only way
+/// out is to click the panel and click away again.
 ///
-/// `is_focused()` is no use for this: tao caches it from the same messages that
-/// raise the `Focused` event, so whenever the event is missed the cached flag is
-/// wrong in the same direction. `GetForegroundWindow` is the ground truth.
+/// Focus is the wrong thing to watch. Launched from the AutoHotkey script the
+/// panel often never becomes the foreground window at all — a background process
+/// asking for foreground is exactly what Windows' foreground lock refuses — so
+/// treating unfocused as dismissable closed the panel out from under the user
+/// before they could click anything. Watch for the gesture that actually means
+/// dismiss instead: a click that lands outside the panel.
 ///
-/// ponytail: a 250ms poll rather than a WinEvent hook for foreground changes.
-/// Two syscalls a tick; the hook is more machinery than the problem is worth.
+/// ponytail: polls the mouse buttons rather than installing WH_MOUSE_LL. A hook
+/// puts us on the input path for every click on the machine, which is a far
+/// worse thing to get wrong than a 60ms sample.
 #[cfg(all(windows, not(debug_assertions)))]
-fn dismiss_when_unfocused(win: WebviewWindow) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, ShowWindow, SW_HIDE};
+fn dismiss_on_click_away(win: WebviewWindow) {
+    use windows_sys::Win32::Foundation::{POINT, RECT};
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        GetAsyncKeyState, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetCursorPos, GetWindowRect, ShowWindow, SW_HIDE,
+    };
+
+    let any_button_down = || {
+        [VK_LBUTTON, VK_RBUTTON, VK_MBUTTON]
+            .iter()
+            .any(|vk| unsafe { GetAsyncKeyState(*vk as i32) } as u16 & 0x8000 != 0)
+    };
 
     std::thread::spawn(move || {
-        let mut misses = 0;
+        // Starts true so a button already held when the app launches does not
+        // read as a fresh press.
+        let mut was_down = true;
         loop {
-            std::thread::sleep(Duration::from_millis(250));
-            let Ok(hwnd) = win.hwnd() else { return };
-            if !win.is_visible().unwrap_or(false) {
-                misses = 0;
+            std::thread::sleep(Duration::from_millis(60));
+
+            let down = any_button_down();
+            let pressed = down && !was_down;
+            was_down = down;
+
+            if !pressed || !win.is_visible().unwrap_or(false) {
                 continue;
             }
-            let focused = unsafe { GetForegroundWindow() } as isize == hwnd.0 as isize;
-            // Two strikes, so a show that is slow to take focus is not yanked
-            // out from under the user.
-            misses = if focused { 0 } else { misses + 1 };
-            if misses >= 2 {
+            let Ok(hwnd) = win.hwnd() else { return };
+
+            unsafe {
+                let mut rect: RECT = std::mem::zeroed();
+                let mut cursor: POINT = std::mem::zeroed();
+                if GetWindowRect(hwnd.0 as _, &mut rect) == 0 || GetCursorPos(&mut cursor) == 0 {
+                    continue;
+                }
+                let inside = cursor.x >= rect.left
+                    && cursor.x < rect.right
+                    && cursor.y >= rect.top
+                    && cursor.y < rect.bottom;
+                if inside {
+                    continue;
+                }
                 win.hide().ok();
                 // tao's `set_visible` diffs against cached window flags and does
                 // nothing when they already say hidden, so a window that is
                 // really on screen with a stale flag cannot be closed by the app
                 // at all. Hide it outright; `hide()` above is only there to keep
                 // the cached flag in step for the next show.
-                unsafe { ShowWindow(hwnd.0 as _, SW_HIDE) };
-                misses = 0;
+                ShowWindow(hwnd.0 as _, SW_HIDE);
             }
         }
     });
@@ -374,7 +402,7 @@ pub fn run() {
                 });
 
                 #[cfg(all(windows, not(debug_assertions)))]
-                dismiss_when_unfocused(win.clone());
+                dismiss_on_click_away(win.clone());
             }
 
             Ok(())

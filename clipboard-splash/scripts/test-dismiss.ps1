@@ -1,10 +1,16 @@
-# Checks that the overlay dismisses itself whenever it is on screen without
-# focus. Run against an installed release build, with the app running:
+# Checks that the overlay stays put while it is on screen unfocused, which is
+# how it sits whenever the AutoHotkey script opened it: a background process
+# asking for foreground is what the foreground lock refuses, so the panel is
+# visible without being focused, and an earlier build read that as a cue to
+# close itself half a second after opening.
+#
+# Run against an installed release build, with the app running:
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-dismiss.ps1
 #
-# Debug builds skip dismissal entirely, so this only means anything on a
-# release build. It puts the overlay on screen for a couple of seconds.
+# Debug builds skip dismissal entirely, so this only means anything on a release
+# build. Dismissal itself is a click outside the panel, which cannot be checked
+# without taking over the mouse; do that one by hand.
 
 Add-Type @"
 using System; using System.Text; using System.Runtime.InteropServices;
@@ -39,22 +45,16 @@ function Check($name, $ok) {
   if ($ok) { "PASS  $name" } else { $script:fail++; "FAIL  $name" }
 }
 
-# Re-running the exe toggles the running instance, the same path the hotkey and
-# the AutoHotkey script take.
-if ([W]::IsWindowVisible($ov)) { Start-Process $proc.Path; Start-Sleep -Milliseconds 600 }
-Start-Process $proc.Path
-Start-Sleep -Milliseconds 900
-
-# A window that holds focus must not be dismissed under it.
-Check "focused window stays open" (([W]::IsWindowVisible($ov)) -and ([W]::GetForegroundWindow() -eq $ov))
-
 # SW_SHOWNA puts it on screen without activating: visible, unfocused, and with
-# no blur event ever raised. This is the state a missed event leaves behind.
+# no blur event raised. Two seconds is eight watcher ticks.
 [void][W]::ShowWindow($ov, 0)
-Start-Sleep -Milliseconds 600
+Start-Sleep -Milliseconds 400
 [void][W]::ShowWindow($ov, 8)
-Check "shown unfocused, still up after one tick" ([W]::IsWindowVisible($ov))
-Start-Sleep -Milliseconds 1200
-Check "unfocused window dismissed itself" (-not [W]::IsWindowVisible($ov))
+Check "shows without being activated" ([W]::IsWindowVisible($ov))
+"      foreground is the panel: $([W]::GetForegroundWindow() -eq $ov)"
+Start-Sleep -Seconds 2
+Check "unfocused window is left alone" ([W]::IsWindowVisible($ov))
 
-if ($fail) { "`n$fail check(s) failed"; exit 1 } else { "`nall checks passed" }
+[void][W]::ShowWindow($ov, 0)
+"`nBy hand: open it and click outside the panel. It should close."
+if ($fail) { "$fail check(s) failed"; exit 1 } else { "all checks passed" }

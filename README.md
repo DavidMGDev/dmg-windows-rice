@@ -76,6 +76,8 @@ Then, per tool:
   It shows a picker of everything in `skills/` plus the `mattpocock-skills`,
   `ponytail` and `impeccable` plugins and `no-ai-slop`. One `enter` installs
   what you ticked and opens Claude, running any setup the selection needs.
+  `impeccable` and `windows-context-menu` start unticked; everything else is
+  on by default.
 
 To pull the submodules up to their latest published commits later:
 

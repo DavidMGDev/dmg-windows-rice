@@ -192,6 +192,50 @@ fn show_near_cursor(win: &WebviewWindow) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Dismiss-on-blur is driven by an event, and an event is a transition: if the
+/// window loses focus without one landing — alt-tabbed away, or an app grabbing
+/// focus as it opens — it sits there visible with nothing left to dismiss it.
+/// Clicking outside then changes no focus state either, so the only way out is
+/// to click the panel and click away again. Watch the invariant instead of the
+/// transition: visible but not focused means gone.
+///
+/// `is_focused()` is no use for this: tao caches it from the same messages that
+/// raise the `Focused` event, so whenever the event is missed the cached flag is
+/// wrong in the same direction. `GetForegroundWindow` is the ground truth.
+///
+/// ponytail: a 250ms poll rather than a WinEvent hook for foreground changes.
+/// Two syscalls a tick; the hook is more machinery than the problem is worth.
+#[cfg(all(windows, not(debug_assertions)))]
+fn dismiss_when_unfocused(win: WebviewWindow) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, ShowWindow, SW_HIDE};
+
+    std::thread::spawn(move || {
+        let mut misses = 0;
+        loop {
+            std::thread::sleep(Duration::from_millis(250));
+            let Ok(hwnd) = win.hwnd() else { return };
+            if !win.is_visible().unwrap_or(false) {
+                misses = 0;
+                continue;
+            }
+            let focused = unsafe { GetForegroundWindow() } as isize == hwnd.0 as isize;
+            // Two strikes, so a show that is slow to take focus is not yanked
+            // out from under the user.
+            misses = if focused { 0 } else { misses + 1 };
+            if misses >= 2 {
+                win.hide().ok();
+                // tao's `set_visible` diffs against cached window flags and does
+                // nothing when they already say hidden, so a window that is
+                // really on screen with a stale flag cannot be closed by the app
+                // at all. Hide it outright; `hide()` above is only there to keep
+                // the cached flag in step for the next show.
+                unsafe { ShowWindow(hwnd.0 as _, SW_HIDE) };
+                misses = 0;
+            }
+        }
+    });
+}
+
 fn toggle(app: &AppHandle) {
     let Some(win) = app.get_webview_window("main") else {
         return;
@@ -319,13 +363,18 @@ pub fn run() {
                         api.prevent_close();
                         let _ = hide_target.hide();
                     }
-                    // Dismiss on click-away, but not in dev or debugging is impossible.
+                    // Dismiss on click-away, but not in dev or debugging is
+                    // impossible. The watcher below covers the same ground; this
+                    // is here because it is instant where a poll has a tick of lag.
                     #[cfg(not(debug_assertions))]
                     tauri::WindowEvent::Focused(false) => {
                         let _ = hide_target.hide();
                     }
                     _ => {}
                 });
+
+                #[cfg(all(windows, not(debug_assertions)))]
+                dismiss_when_unfocused(win.clone());
             }
 
             Ok(())

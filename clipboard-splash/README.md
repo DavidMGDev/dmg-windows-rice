@@ -24,7 +24,7 @@ stderr at startup and shown in the tray tooltip.
 The shell reserves `Win+V`, `Win+Shift+V` and `Win+C`; `RegisterHotKey` refuses
 all three. `Win+Alt+C` is free either way, verified on Win11 26200.
 
-### Getting `Win+C` back from Copilot
+### Getting `Win+C`
 
 Run the wizard, which does everything below and verifies each step:
 
@@ -36,29 +36,39 @@ It probes who owns `Win+C` with `RegisterHotKey`, walks you through the one
 elevated step, restarts Explorer, and falls back to AutoHotkey if the key
 stays reserved. Safe to re-run. The manual route follows.
 
-`Win+C` cannot be claimed through `RegisterHotKey` while the shell holds it, so
-`clipboard-splash.ahk` binds it with AutoHotkey v2 instead. A low-level keyboard
-hook runs ahead of the shell, so Copilot never sees the keypress and the overlay
-gets it. The app is single-instance, so the script just re-runs the exe and the
-running copy toggles.
+`Win+C` cannot be claimed through `RegisterHotKey`: something already holds it and
+registration returns `ERROR_HOTKEY_ALREADY_REGISTERED`. `clipboard-splash.ahk`
+binds it with AutoHotkey v2 instead, whose low-level keyboard hook runs ahead of
+that. The app is single-instance, so the script re-runs the exe and the copy
+already running toggles.
+
+The script sets `A_MenuMaskKey := "vk07"`, which is load-bearing. AutoHotkey
+masks the Win keyup so releasing it does not open the Start menu, and the default
+mask is `vk11` (Ctrl). Any tool hooking Ctrl+Win then sees that mask as its own
+shortcut: OpenWhispr binds dictation to Control+Super and fired on every `Win+C`
+until the mask moved to an unassigned key.
 
 Run the script, or drop a shortcut to it in `shell:startup` to have it always on.
 
-To take `Win+C` away from Copilot permanently instead, run this **as
-administrator** — `HKCU\Software\Policies` is ACL'd to admins, so it will fail
-otherwise — then sign out and back in:
-
-```powershell
-New-Item -Path "HKCU:\Software\Policies\Microsoft\Windows\WindowsCopilot" -Force
-Set-ItemProperty -Path "HKCU:\Software\Policies\Microsoft\Windows\WindowsCopilot" `
-  -Name TurnOffWindowsCopilot -Value 1 -Type DWord
-```
-
-Once that frees the key, the app claims `Win+C` natively on next launch and the
-AutoHotkey script is no longer needed.
+Disabling Copilot does **not** free `Win+C`, tested on Win11 26200: the key stayed
+registered after `TurnOffWindowsCopilot=1` and an Explorer restart. Treat the
+AutoHotkey route as the answer rather than a fallback.
 
 The app lives in the tray and registers itself for autostart, so the hotkey
 works after a reboot.
+
+## Tray menu
+
+| Item | Does |
+| --- | --- |
+| Show | Open the overlay at the cursor |
+| Start with Windows | Toggle the autostart entry |
+| Disable Windows Copilot | Toggle `TurnOffWindowsCopilot`; prompts for UAC |
+| Quit | Exit, releasing the hotkeys |
+
+Disabling Copilot writes to the Policies hive, which Windows ACLs to
+administrators, so it elevates via `reg.exe` behind a UAC prompt. It runs on its
+own thread so the tray does not hang while that prompt is up.
 
 ## Data
 

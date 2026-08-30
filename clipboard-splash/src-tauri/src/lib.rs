@@ -43,6 +43,46 @@ fn round_corners(win: &WebviewWindow) {
 /// Gap between the cursor and the panel, in physical pixels.
 const GAP: i32 = 14;
 
+#[cfg(windows)]
+const COPILOT_KEY: &str = r"HKCU\Software\Policies\Microsoft\Windows\WindowsCopilot";
+/// Keeps `reg.exe` and `powershell.exe` from flashing a console window.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+#[cfg(windows)]
+fn copilot_disabled() -> bool {
+    use std::os::windows::process::CommandExt;
+    std::process::Command::new("reg")
+        .args(["query", COPILOT_KEY, "/v", "TurnOffWindowsCopilot"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map(|out| {
+            // Last token is the value, e.g. "0x1". Comparing the whole token
+            // rather than searching avoids matching 0x10, 0x11 and friends.
+            String::from_utf8_lossy(&out.stdout)
+                .split_whitespace()
+                .last()
+                == Some("0x1")
+        })
+        .unwrap_or(false)
+}
+
+/// Windows ACLs the Policies hive to administrators, so this has to elevate.
+/// Blocks on the UAC prompt, so callers run it off the menu thread.
+#[cfg(windows)]
+fn set_copilot_disabled(disable: bool) {
+    use std::os::windows::process::CommandExt;
+    let value = u8::from(disable);
+    let script = format!(
+        "Start-Process reg -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList \
+         'add','{COPILOT_KEY}','/v','TurnOffWindowsCopilot','/t','REG_DWORD','/d','{value}','/f'"
+    );
+    let _ = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
+}
+
 fn store_path(app: &AppHandle) -> PathBuf {
     app.path()
         .app_data_dir()
@@ -219,13 +259,24 @@ pub fn run() {
                 autostart_on,
                 None::<&str>,
             )?;
+            #[cfg(windows)]
+            let copilot = CheckMenuItem::with_id(
+                app,
+                "copilot",
+                "Disable Windows Copilot",
+                true,
+                copilot_disabled(),
+                None::<&str>,
+            )?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
             let startup_item = startup.clone();
+            #[cfg(windows)]
+            let copilot_item = copilot.clone();
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip(format!("Clipboard Splash  ({label})"))
-                .menu(&Menu::with_items(app, &[&show, &startup, &quit])?)
+                .menu(&Menu::with_items(app, &[&show, &startup, &copilot, &quit])?)
                 .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "show" => toggle(app),
@@ -234,6 +285,16 @@ pub fn run() {
                         let on = launcher.is_enabled().unwrap_or(false);
                         let _ = if on { launcher.disable() } else { launcher.enable() };
                         let _ = startup_item.set_checked(!on);
+                    }
+                    #[cfg(windows)]
+                    "copilot" => {
+                        // UAC blocks, so get off the menu thread or the tray hangs.
+                        let item = copilot_item.clone();
+                        std::thread::spawn(move || {
+                            let wanted = !copilot_disabled();
+                            set_copilot_disabled(wanted);
+                            let _ = item.set_checked(copilot_disabled());
+                        });
                     }
                     "quit" => app.exit(0),
                     _ => {}

@@ -11,6 +11,13 @@
 ;
 ; To start this with Windows, drop a shortcut to it in shell:startup.
 
+; AutoHotkey masks the Win keyup so releasing it does not open the Start menu,
+; and A_MenuMaskKey defaults to vk11 (Ctrl). Anything hooking Ctrl+Super then
+; sees that mask as its own trigger: OpenWhispr binds dictation to Control+Super
+; and fired on every Win+C because of it. vk07 is unassigned, so nothing else
+; can mistake the mask for a real shortcut.
+A_MenuMaskKey := "vk07"
+
 exe := EnvGet("LOCALAPPDATA") . "\Clipboard Splash\clipboard-splash.exe"
 
 #c:: {

@@ -11,6 +11,7 @@ your own profile, except where a script says otherwise.
 | --- | --- |
 | [`t3code/`](t3code) | **Continue with T3Code.** Opens any folder as a T3 Code project, from the terminal (`t3here`) or the Explorer right-click menu. Creates the project only if it doesn't exist yet. |
 | [`claude-code/`](claude-code) | **Open Claude Code here.** Right-click menu entry that opens Windows Terminal in the clicked folder with Claude Code running. Sits directly above the T3Code entry, icon taken from `claude.exe`. |
+| [`paste-markdown/`](paste-markdown) | **Paste into Markdown File.** Right-click empty space in a folder to drop the clipboard's text into a new `Clipboard.md`, numbered `Clipboard (1).md` and on if one is already there. |
 | [`remappings/`](remappings) | AutoHotkey v2. `HyperRemap.ahk` kills Caps Lock and turns it into a hyper key for symbols you'd otherwise reach for with a modifier (`Caps+q` → `@`, `Caps+j` → `{}`, and so on). `BlackScreen.ahk` blanks every monitor on `Ctrl+Alt+Shift+B` and hides the cursor, any key wakes it. |
 | [`steam/`](steam) | Toggles a firewall rule that blocks `steam.exe` outbound, to force offline mode. Self-elevates, shuts Steam down first, restarts it after. |
 | [`skills/`](skills) | Claude Code skills I wrote. This folder is the source of truth; `claude-init` mirrors it. See below. |
@@ -72,6 +73,8 @@ Then, per tool:
 - **Claude Code menu entry:** `.\claude-code\claudehere.ps1 -Install`. Needs
   `claude` on PATH and Windows Terminal. See
   [`claude-code/README.md`](claude-code/README.md).
+- **Paste into Markdown:** `.\paste-markdown\pastemd.ps1 -Install`. Nothing else
+  needed. See [`paste-markdown/README.md`](paste-markdown/README.md).
 - **Remappings:** install [AutoHotkey v2](https://www.autohotkey.com/), then
   drop shortcuts to both `.ahk` files in `shell:startup` so they come back
   after a reboot.

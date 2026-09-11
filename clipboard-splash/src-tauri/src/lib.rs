@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -357,18 +357,73 @@ struct Tip {
 /// `Some` from the moment a query is claimed until the label leaves the screen.
 static TIP: Mutex<Option<Tip>> = Mutex::new(None);
 
-/// A glance, not a read: one line, 40 characters.
-fn one_line(text: &str) -> String {
+/// The Claude Code conversation a typed follow-up resumes, so holding the
+/// hotkey and typing carries on from the screenshot rather than starting over.
+static SESSION: Mutex<Option<String>> = Mutex::new(None);
+
+/// Everything the label knows about itself. Position and lifetime stay here;
+/// the webview only draws this and reports back how wide it came out.
+struct Label {
+    text: String,
+    /// Smaller type and twice the characters. An answer to a line you typed is
+    /// one you are already looking at the label to read.
+    small: bool,
+    /// The rest of the answer is on the clipboard. Drawn as a grey dot rather
+    /// than written, so it can never be mistaken for something Claude said.
+    dot: bool,
+}
+
+impl Label {
+    fn err() -> Self {
+        Label { text: "(Err)".into(), small: false, dot: false }
+    }
+
+    /// A line of ours rather than an answer: a failure reason, or the prompt.
+    fn plain(text: &str) -> Self {
+        Label { text: one_line(text, 80), small: true, dot: false }
+    }
+
+    /// What is being typed. A typed line has no length limit, so the label
+    /// shows the end of it, the way a one-line field scrolls to the caret.
+    fn typing(line: &str) -> Self {
+        let tail: String = {
+            let chars: Vec<char> = line.chars().collect();
+            chars[chars.len().saturating_sub(90)..].iter().collect()
+        };
+        Label { text: if tail.is_empty() { "…".into() } else { tail }, small: true, dot: false }
+    }
+}
+
+/// A glance, not a read: one line, `limit` characters.
+fn one_line(text: &str, limit: usize) -> String {
     text.split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
         .chars()
-        .take(40)
+        .take(limit)
         .collect()
+}
+
+/// Splits an answer into what goes on screen and what goes to the clipboard:
+/// the first line up to `limit` characters, and the whole of it whenever any
+/// part did not fit.
+fn glance(answer: &str, limit: usize) -> (String, Option<String>) {
+    let head = one_line(answer.lines().next().unwrap_or(""), limit);
+    let whole = answer.trim();
+    let rest = (whole != head).then(|| whole.to_string());
+    (head, rest)
 }
 
 fn tip_window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window("tip")
+}
+
+fn emit_tip(app: &AppHandle, label: &Label) {
+    let _ = app.emit_to(
+        "tip",
+        "tip",
+        serde_json::json!({ "text": label.text, "small": label.small, "dot": label.dot }),
+    );
 }
 
 fn hide_tip(app: &AppHandle) {
@@ -381,16 +436,16 @@ fn hide_tip(app: &AppHandle) {
     }
 }
 
-/// Shows `text` beside the cursor for `secs`, following the mouse while it is
+/// Shows a label beside the cursor for `secs`, following the mouse while it is
 /// up. The webview sizes the window to the text, so the box hugs whatever it
 /// ends up being.
-fn show_tip(app: &AppHandle, text: &str, detail: Option<String>, secs: u64) {
+fn show_tip(app: &AppHandle, label: Label, detail: Option<String>, secs: u64) {
     let Some(win) = tip_window(app) else { return };
 
     *TIP.lock().unwrap() = Some(Tip { detail });
     let generation = TIP_GEN.fetch_add(1, Ordering::SeqCst) + 1;
 
-    let _ = app.emit_to("tip", "tip", one_line(text));
+    emit_tip(app, &label);
     let _ = place_near_cursor(&win);
     let _ = win.show();
 
@@ -467,8 +522,14 @@ fn claude_exe() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("claude"))
 }
 
+/// Returns the answer and the session it landed in, which is what lets a typed
+/// follow-up resume the same conversation.
 #[cfg(windows)]
-fn run_claude(prompt: &str, shot: Option<&Path>) -> Result<String, String> {
+fn run_claude(
+    prompt: &str,
+    shot: Option<&Path>,
+    resume: Option<&str>,
+) -> Result<(String, Option<String>), String> {
     use std::os::windows::process::CommandExt;
     use std::sync::mpsc;
 
@@ -480,8 +541,6 @@ fn run_claude(prompt: &str, shot: Option<&Path>) -> Result<String, String> {
         None => prompt.to_string(),
     };
 
-    // The prompt goes before --allowedTools: the flag is variadic and swallows
-    // any positional that follows it.
     let mut command = std::process::Command::new(claude_exe());
     command
         .arg("-p")
@@ -489,6 +548,15 @@ fn run_claude(prompt: &str, shot: Option<&Path>) -> Result<String, String> {
         // Plain `claude-opus-5` is the 200k window; the million-token one is a
         // `[1m]` suffix, and this asks a question about one screenshot.
         .args(["--model", "claude-opus-5", "--effort", "high"])
+        // json rather than text only for the session id that comes with it.
+        .args(["--output-format", "json"]);
+    if let Some(session) = resume {
+        // `--resume` takes an optional value, so its id follows it immediately.
+        command.args(["--resume", session]);
+    }
+    // The prompt goes before --allowedTools: the flag is variadic and swallows
+    // any positional that follows it.
+    command
         .args(["--allowedTools", "Read"])
         .stdin(std::process::Stdio::null())
         .creation_flags(CREATE_NO_WINDOW);
@@ -517,11 +585,40 @@ fn run_claude(prompt: &str, shot: Option<&Path>) -> Result<String, String> {
     if stdout.is_empty() {
         return Err("claude answered with nothing".into());
     }
-    Ok(stdout)
+
+    // Anything that is not the shape we asked for is still worth showing.
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) else {
+        return Ok((stdout, None));
+    };
+    let session = json["session_id"].as_str().map(str::to_owned);
+    let answer = json["result"].as_str().unwrap_or(&stdout).trim().to_string();
+    if json["is_error"].as_bool() == Some(true) {
+        return Err(if answer.is_empty() { "claude reported an error".into() } else { answer });
+    }
+    if answer.is_empty() {
+        return Err("claude answered with nothing".into());
+    }
+    Ok((answer, session))
 }
 
+/// The glance goes next to the cursor and the whole answer goes to the
+/// clipboard, announced by the dot. Line one is the answer; the rest is there
+/// for when line one says it is needed.
 #[cfg(windows)]
-fn ask_claude(app: &AppHandle) {
+fn deliver(app: &AppHandle, answer: &str, small: bool) {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+
+    let (text, rest) = glance(answer, if small { 80 } else { 40 });
+    if let Some(rest) = rest.clone() {
+        let _ = app.clipboard().write_text(rest);
+    }
+    show_tip(app, Label { text, small, dot: rest.is_some() }, None, 10);
+}
+
+/// `follow_up` is a line the user typed, which continues the conversation the
+/// screenshot started; `None` asks the standing question about the screen.
+#[cfg(windows)]
+fn ask_claude(app: &AppHandle, follow_up: Option<String>) {
     // Claim the slot before anything is drawn, so a press during the capture
     // cancels instead of starting a second query.
     *TIP.lock().unwrap() = Some(Tip { detail: None });
@@ -530,31 +627,293 @@ fn ask_claude(app: &AppHandle) {
 
     let app = app.clone();
     std::thread::spawn(move || {
-        let Some(prompt) = current_prompt(&app) else {
-            if !cancelled() {
-                show_tip(&app, "(Err)", Some("no snippet named Current-Prompt".into()), 10);
-            }
-            return;
-        };
-
-        busy_cursor(true);
-        let shot = screenshot();
-        if cancelled() {
-            return;
-        }
+        let typed = follow_up.is_some();
 
         // Nothing is drawn while the query is out. A placeholder would be text
         // the user has to read and discard, so the waiting shows in the cursor
         // instead, which costs no pixels and is already where they are looking.
-        let (text, detail) = match run_claude(&prompt, shot.as_deref()) {
-            Ok(answer) => (answer, None),
-            Err(reason) => ("(Err)".to_string(), Some(reason)),
+        busy_cursor(true);
+        let answered = match follow_up {
+            // No second capture: Claude still has the first one in the session,
+            // and a screenshot of the label being typed into is not the screen.
+            Some(line) => {
+                let resume = SESSION.lock().unwrap().clone();
+                run_claude(&line, None, resume.as_deref())
+            }
+            None => match current_prompt(&app) {
+                Some(prompt) => {
+                    let shot = screenshot();
+                    if cancelled() {
+                        busy_cursor(false);
+                        return;
+                    }
+                    run_claude(&prompt, shot.as_deref(), None)
+                }
+                None => Err("no snippet named Current-Prompt".into()),
+            },
         };
         busy_cursor(false);
         if cancelled() {
             return; // dismissed while waiting: never to be seen again
         }
-        show_tip(&app, &text, detail, 10);
+
+        match answered {
+            Ok((answer, session)) => {
+                if session.is_some() {
+                    *SESSION.lock().unwrap() = session;
+                }
+                deliver(&app, &answer, typed);
+            }
+            Err(reason) => show_tip(&app, Label::err(), Some(reason), 10),
+        }
+    });
+}
+
+// --- Typing a follow-up ----------------------------------------------------
+
+/// How the keyboard hook reports the state of the line being typed.
+const TYPING: u8 = 0;
+const SEND: u8 = 1;
+const CANCEL: u8 = 2;
+
+/// What the hook is collecting. `None` whenever no line is open, and the hook
+/// passes every key straight through while it reads `None`.
+#[cfg(windows)]
+static TYPED: Mutex<Option<String>> = Mutex::new(None);
+#[cfg(windows)]
+static TYPED_END: AtomicU8 = AtomicU8::new(TYPING);
+
+/// Whether the hotkey's letter is still down `wait` later. Win+C, Win+Alt+C and
+/// Ctrl+Alt+V all end in a letter, and the letter is what tells a tap from a
+/// hold: the modifiers stay down for a moment after any ordinary press.
+#[cfg(windows)]
+fn held(wait: Duration) -> bool {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+
+    let down = || {
+        ['C', 'V']
+            .iter()
+            .any(|key| unsafe { GetAsyncKeyState(*key as i32) } as u16 & 0x8000 != 0)
+    };
+    let deadline = Instant::now() + wait;
+    while Instant::now() < deadline {
+        if !down() {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(16));
+    }
+    down()
+}
+
+/// The character a key produces on the layout the window in front is using.
+///
+/// ponytail: reads Shift with `GetAsyncKeyState` and ignores Caps Lock and dead
+/// keys — toggle and dead-key state belong to a thread's own input queue, and
+/// ours is not the one being typed into. Shift is what a question is typed with.
+#[cfg(windows)]
+unsafe fn typed_char(vk: u16, scan: u32) -> Option<char> {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        GetAsyncKeyState, GetKeyboardLayout, ToUnicodeEx, VK_CONTROL, VK_MENU, VK_SHIFT,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId,
+    };
+
+    let down = |vk: u16| GetAsyncKeyState(vk as i32) as u16 & 0x8000 != 0;
+    // Ctrl on its own makes a shortcut, not a character. AltGr is Ctrl and Alt
+    // together, which does make one.
+    if down(VK_CONTROL) && !down(VK_MENU) {
+        return None;
+    }
+
+    let mut state = [0u8; 256];
+    for modifier in [VK_SHIFT, VK_CONTROL, VK_MENU] {
+        if down(modifier) {
+            state[modifier as usize] = 0x80;
+        }
+    }
+
+    let layout =
+        GetKeyboardLayout(GetWindowThreadProcessId(GetForegroundWindow(), std::ptr::null_mut()));
+    let mut out = [0u16; 4];
+    // Bit 2 keeps the call from disturbing the kernel's own dead-key state.
+    let count = ToUnicodeEx(
+        vk as u32,
+        scan,
+        state.as_ptr(),
+        out.as_mut_ptr(),
+        out.len() as i32,
+        4,
+        layout,
+    );
+    if count <= 0 {
+        return None;
+    }
+    char::decode_utf16(out[..count as usize].iter().copied())
+        .next()?
+        .ok()
+        .filter(|ch| !ch.is_control())
+}
+
+#[cfg(windows)]
+unsafe extern "system" fn typing_hook(code: i32, wparam: usize, lparam: isize) -> isize {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        VK_BACK, VK_CAPITAL, VK_CONTROL, VK_ESCAPE, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN,
+        VK_MENU, VK_RCONTROL, VK_RETURN, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CallNextHookEx, HC_ACTION, KBDLLHOOKSTRUCT, WM_KEYDOWN, WM_SYSKEYDOWN,
+    };
+
+    let pass = || CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam);
+    if code != HC_ACTION as i32 {
+        return pass();
+    }
+    let key = &*(lparam as *const KBDLLHOOKSTRUCT);
+    let vk = key.vkCode as u16;
+
+    // Modifiers go through untouched. Eating a keyup leaves whatever is in
+    // front of us believing the key is still held down, which is a worse thing
+    // to do to an app than letting a bare Shift reach it.
+    if matches!(
+        vk,
+        VK_SHIFT
+            | VK_LSHIFT
+            | VK_RSHIFT
+            | VK_CONTROL
+            | VK_LCONTROL
+            | VK_RCONTROL
+            | VK_MENU
+            | VK_LMENU
+            | VK_RMENU
+            | VK_LWIN
+            | VK_RWIN
+            | VK_CAPITAL
+    ) {
+        return pass();
+    }
+
+    let mut typed = TYPED.lock().unwrap();
+    let Some(line) = typed.as_mut() else {
+        return pass();
+    };
+
+    if wparam as u32 == WM_KEYDOWN || wparam as u32 == WM_SYSKEYDOWN {
+        match vk {
+            VK_RETURN => TYPED_END.store(SEND, Ordering::SeqCst),
+            VK_ESCAPE => TYPED_END.store(CANCEL, Ordering::SeqCst),
+            VK_BACK => {
+                line.pop();
+            }
+            _ => line.extend(typed_char(vk, key.scanCode)),
+        }
+    }
+    // Swallowed: these keystrokes are the question, not input for the window
+    // behind us, which would otherwise be taking them into a spreadsheet cell.
+    1
+}
+
+/// Hold the hotkey and the label becomes a line to type into. The keys come off
+/// the machine for as long as it is open: an unfocused window is given no
+/// keyboard, and the alternative is typing the question into whatever is in
+/// front. Enter sends it, Esc drops it, and so does another press of the hotkey.
+#[cfg(windows)]
+fn compose(app: &AppHandle) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        PeekMessageW, SetWindowsHookExW, UnhookWindowsHookEx, MSG, PM_REMOVE, WH_KEYBOARD_LL,
+    };
+
+    *TYPED.lock().unwrap() = Some(String::new());
+    TYPED_END.store(TYPING, Ordering::SeqCst);
+    // The three dots are back, but only here, where they mean "type" and not
+    // "thinking". An hour is just a ceiling; the idle timer below ends it.
+    show_tip(app, Label::typing(""), None, 3600);
+    let generation = TIP_GEN.load(Ordering::SeqCst);
+
+    let app = app.clone();
+    std::thread::spawn(move || unsafe {
+        let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(typing_hook), std::ptr::null_mut(), 0);
+        if hook.is_null() {
+            *TYPED.lock().unwrap() = None;
+            hide_tip(&app);
+            return;
+        }
+
+        let mut shown = String::new();
+        let mut last_key = Instant::now();
+        let ended = loop {
+            // A low-level hook only fires while the thread that set it is
+            // retrieving messages, so this loop is what keeps it alive.
+            let mut msg: MSG = std::mem::zeroed();
+            while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {}
+
+            let ended = TYPED_END.load(Ordering::SeqCst);
+            if ended != TYPING {
+                break ended;
+            }
+            // Another press, or the mode switched off underneath us.
+            if TIP_GEN.load(Ordering::SeqCst) != generation {
+                break CANCEL;
+            }
+
+            let line = TYPED.lock().unwrap().clone().unwrap_or_default();
+            if line != shown {
+                shown = line;
+                last_key = Instant::now();
+                emit_tip(&app, &Label::typing(&shown));
+            }
+            // A hook that swallows every key on the machine is not a thing to
+            // leave up on a window someone walked away from.
+            if last_key.elapsed() > Duration::from_secs(60) {
+                break CANCEL;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+
+        UnhookWindowsHookEx(hook);
+        let line = TYPED.lock().unwrap().take().unwrap_or_default();
+        if ended == SEND && !line.trim().is_empty() {
+            ask_claude(&app, Some(line));
+        } else {
+            hide_tip(&app);
+        }
+    });
+}
+
+/// A tap clears whatever is on screen, or asks a new question when there is
+/// nothing to clear. Holding it opens a line to type into instead. Which of the
+/// two it was is only known a moment after the press, so the press does its
+/// clearing straight away and the rest waits on the key coming back up.
+#[cfg(windows)]
+fn claude_hotkey(app: &AppHandle) {
+    // A line already open ends on the press, the way everything else does.
+    if TYPED.lock().unwrap().is_some() {
+        TYPED_END.store(CANCEL, Ordering::SeqCst);
+        return;
+    }
+
+    let showing = TIP.lock().unwrap().take();
+    let idle = showing.is_none();
+    match showing {
+        // On (Err) the press trades the marker for the reason behind it.
+        Some(Tip { detail: Some(reason) }) => show_tip(app, Label::plain(&reason), None, 10),
+        Some(Tip { detail: None }) => hide_tip(app),
+        // Claim the slot so a second press can cancel this one before it starts.
+        None => *TIP.lock().unwrap() = Some(Tip { detail: None }),
+    }
+
+    let generation = TIP_GEN.load(Ordering::SeqCst);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let hold = held(Duration::from_millis(900));
+        if TIP_GEN.load(Ordering::SeqCst) != generation {
+            return; // pressed again while we were waiting on the key
+        }
+        if hold {
+            compose(&app);
+        } else if idle {
+            ask_claude(&app, None);
+        }
     });
 }
 
@@ -562,14 +921,7 @@ fn ask_claude(app: &AppHandle) {
 fn on_hotkey(app: &AppHandle) {
     #[cfg(windows)]
     if CLAUDE_MODE.load(Ordering::Relaxed) {
-        // A label on screen swallows the press: it dismisses, except on (Err),
-        // where the press trades the marker for the reason behind it.
-        let showing = TIP.lock().unwrap().take();
-        match showing {
-            Some(Tip { detail: Some(reason) }) => show_tip(app, &reason, None, 10),
-            Some(Tip { detail: None }) => hide_tip(app),
-            None => ask_claude(app),
-        }
+        claude_hotkey(app);
         return;
     }
     toggle(app);
@@ -698,8 +1050,10 @@ pub fn run() {
                         let on = !CLAUDE_MODE.load(Ordering::Relaxed);
                         CLAUDE_MODE.store(on, Ordering::Relaxed);
                         let _ = claude_item.set_checked(on);
-                        // Leaving the mode should not strand a label on screen.
+                        // Leaving the mode should not strand a label on screen,
+                        // and least of all a keyboard hook eating every key.
                         if !on {
+                            TYPED_END.store(CANCEL, Ordering::SeqCst);
                             hide_tip(app);
                         }
                     }
@@ -753,7 +1107,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{find_current_prompt, one_line};
+    use super::{find_current_prompt, glance, one_line, Label};
 
     const CLIPS: &str = r#"{"folders":[
         {"name":"Paths","items":[{"label":"QuickTools","text":"C:/qt"}]},
@@ -773,9 +1127,37 @@ mod tests {
 
     #[test]
     fn label_is_one_line_of_forty_characters() {
-        assert_eq!(one_line("  a\n\tb  c "), "a b c");
-        assert_eq!(one_line(&"x".repeat(100)).len(), 40);
+        assert_eq!(one_line("  a\n\tb  c ", 40), "a b c");
+        assert_eq!(one_line(&"x".repeat(100), 40).len(), 40);
         // Counted in characters, not bytes, or this would panic or truncate mid-glyph.
-        assert_eq!(one_line(&"é".repeat(100)).chars().count(), 40);
+        assert_eq!(one_line(&"é".repeat(100), 40).chars().count(), 40);
+    }
+
+    #[test]
+    fn the_screen_gets_line_one_and_the_clipboard_gets_the_rest() {
+        // Short enough to fit whole: nothing to copy, so no dot and no clobbered
+        // clipboard.
+        assert_eq!(glance("Lock B2 as $B$2", 40), ("Lock B2 as $B$2".into(), None));
+
+        // Anything held back puts the whole answer on the clipboard, not just
+        // the tail, so pasting it gives something that reads on its own.
+        let answer = "Wrong sheet - see clipboard\n\nThe formula points at Q3.";
+        let (head, rest) = glance(answer, 40);
+        assert_eq!(head, "Wrong sheet - see clipboard");
+        assert_eq!(rest.as_deref(), Some(answer));
+
+        // A first line too long to show still counts as held back.
+        let (head, rest) = glance(&"y".repeat(60), 40);
+        assert_eq!(head.chars().count(), 40);
+        assert!(rest.is_some());
+    }
+
+    #[test]
+    fn a_typed_line_shows_its_end() {
+        assert_eq!(Label::typing("").text, "…");
+        let long: String = ('a'..='z').cycle().take(200).collect();
+        let shown = Label::typing(&long).text;
+        assert_eq!(shown.chars().count(), 90);
+        assert!(long.ends_with(&shown));
     }
 }

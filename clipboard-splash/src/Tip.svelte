@@ -3,16 +3,17 @@
   import { LogicalSize } from "@tauri-apps/api/dpi";
   import { getCurrentWindow } from "@tauri-apps/api/window";
 
-  // The Claude Mode label: one line, white, system font, no chrome of any kind.
-  // Rust owns where it sits and how long it lives; this end only draws it and
-  // reports back how big it turned out.
-  let text = $state("");
+  /// Rust owns where this sits and how long it lives; the webview draws it and
+  /// reports back how wide it came out, so the box hugs the text.
+  type View = { text: string; small: boolean; dot: boolean };
+
+  let view = $state<View>({ text: "", small: false, dot: false });
   let box = $state<HTMLElement | undefined>();
 
-  void listen<string>("tip", (event) => (text = event.payload));
+  void listen<View>("tip", (event) => (view = event.payload));
 
   $effect(() => {
-    text;
+    view;
     if (!box) return;
     const rect = box.getBoundingClientRect();
     void getCurrentWindow().setSize(
@@ -21,7 +22,7 @@
   });
 </script>
 
-<span class="tip" bind:this={box}>{text}</span>
+<span class="tip" class:small={view.small} bind:this={box}>{#if view.dot}<i class="dot"></i>{/if}{view.text}</span>
 
 <style>
   .tip {
@@ -33,5 +34,23 @@
     font-size: 12px;
     line-height: 15px;
     white-space: nowrap;
+  }
+
+  /* An answer to something you typed: smaller, so twice as much of it fits. */
+  .tip.small {
+    font-size: 11px;
+    line-height: 14px;
+  }
+
+  /* The rest of the answer is on the clipboard. Drawn rather than written, so
+     it cannot be read as a character Claude chose to put there. */
+  .dot {
+    display: inline-block;
+    width: 4px;
+    height: 4px;
+    margin-right: 5px;
+    vertical-align: middle;
+    border-radius: 50%;
+    background: #c4c4c4;
   }
 </style>

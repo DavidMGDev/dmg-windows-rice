@@ -84,29 +84,98 @@ own thread so the tray does not hang while that prompt is up.
 Tick it in the tray and the hotkey stops opening the overlay. Instead it
 screenshots the screen, sends your saved snippet labelled `Current-Prompt`
 along with it to `claude -p`, and puts the answer next to the cursor: one line,
-first 40 characters, white box, black system text, no corners and no shadow.
-It follows the mouse for ten seconds and then it is gone.
+white box, black system text, no corners and no shadow. It follows the mouse
+for ten seconds and then it is gone.
 
 Nothing else shows up while it works. No terminal, no taskbar button, no
 placeholder text to read and discard, and no window that takes the keyboard off
 whatever you were typing in. The only sign it is busy is the cursor, which
 turns to the working arrow until the answer lands.
 
+### One line on screen, the rest on the clipboard
+
+The label shows the first line of the answer, up to 40 characters. The whole
+answer goes to the clipboard, so anything that did not fit is a paste away.
+When that happens a small grey dot appears at the head of the label, drawn
+rather than written so it can never be read as a character Claude chose to put
+there. No dot means the line is the whole of it and your clipboard was left
+alone.
+
+Line one is worth spending the prompt on. The one below asks for an answer
+that stands on its own in 40 characters and says when the clipboard is worth
+opening:
+
+```text
+You are looking at a screenshot of my screen. Work out what I am doing, what I
+am trying to reach, and what is stopping me. Then answer in exactly this shape.
+
+Line 1: the answer itself, under 40 characters. Not a description of the answer,
+not a restatement of my problem, no preamble, no "the screenshot shows", no
+trailing period. If the answer is a value, a formula, a setting, a name or a
+number, line 1 is that thing and nothing else. This is the only line I will see.
+
+Line 2: blank.
+
+Line 3 onward: the complete answer in at most three short paragraphs. What is
+wrong, the fix, and the steps to apply it, including whatever my attempt is
+missing for the fix to work. Plain sentences. No headings, no bullets, no
+markdown, no code fences unless the answer is literally code: this gets pasted
+into other programs exactly as you write it.
+
+Everything from line 3 down lands on my clipboard automatically, and I will only
+paste it if line 1 tells me it is worth it. So when I cannot act on line 1
+alone, line 1 has to say so in its own words, like "Missing a JOIN, steps
+copied" or "Wrong sheet, fix copied". When line 1 is the whole answer, say so by
+not saying anything about the clipboard, and still write the rest as the
+reasoning behind it.
+
+If you genuinely cannot answer without knowing something from me, make line 1
+that one short question. I can hold the hotkey and type an answer back.
+
+When I do type back, keep the same shape, but line 1 may run to 80 characters.
+```
+
+Save it as a snippet named `Current-Prompt` the way you save any other. Case
+and surrounding spaces do not matter, the first match across every folder wins,
+and with no match at all you get `(Err)`.
+
+### Typing back
+
+Hold the hotkey for about a second and the label turns into a line you type
+into, starting at three dots. Enter sends it, Esc drops it, and so does another
+press of the hotkey. It continues the same conversation the screenshot started,
+so the answer arrives with everything already said still in context. Answers to
+something you typed are set a size smaller and run to 80 characters, on the
+grounds that you are already looking at the label to read them.
+
+Nothing is focused while you type. The label cannot take the keyboard without
+stealing it from what is in front, so the keys are taken off the machine with a
+keyboard hook and swallowed for as long as the line is open — otherwise the
+question would be typed into the spreadsheet behind it. Modifiers still go
+through, because eating a keyup leaves the app in front believing the key is
+stuck down. A minute with nothing typed closes the line on its own.
+
+Follow-ups carry no new screenshot. The conversation still has the first one,
+and a second capture would mostly be a picture of the label.
+
 | When you press it again | Hotkey does |
 | --- | --- |
+| Nothing on screen | Asks a new question about the screen |
 | A query is still out | Drops it silently, answer never arrives |
 | An answer is on screen | Drops it, never to be seen again |
 | `(Err)` is on screen | Swaps it for why it failed, or for what the terminal said |
+| A line is being typed | Drops the line, sends nothing |
 
-Make the snippet the way you make any other: save it into a folder and name it
-`Current-Prompt`. Case and surrounding spaces do not matter, the first match
-across every folder wins, and with no match at all you get `(Err)`.
+Holding it does the same clearing on the way down, then opens the line.
+
+### Running it
 
 Needs Claude Code on the machine, found at `~/.local/bin/claude.exe` or on
 `PATH`. Queries run `claude-opus-5` at high effort, with `--allowedTools Read`
 so it can read the screenshot and nothing else can be written, and a 90 second
 cap. The model name carries no `[1m]` suffix, so this is the 200k context
-window: it is one question about one screenshot.
+window. Output comes back as `--output-format json`, which is only there for
+the session id that makes typing back land in the same conversation.
 
 The working cursor is the system arrow, swapped for the duration and put back
 with `SPI_SETCURSORS`. Our own label is never under the pointer and an

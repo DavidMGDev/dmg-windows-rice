@@ -70,6 +70,7 @@ works after a reboot.
 | Item | Does |
 | --- | --- |
 | Show | Open the overlay at the cursor |
+| Claude Mode | Point the hotkey at Claude instead of the overlay |
 | Start with Windows | Toggle the autostart entry |
 | Disable Windows Copilot | Toggle `TurnOffWindowsCopilot`; prompts for UAC |
 | Quit | Exit, releasing the hotkeys |
@@ -77,6 +78,33 @@ works after a reboot.
 Disabling Copilot writes to the Policies hive, which Windows ACLs to
 administrators, so it elevates via `reg.exe` behind a UAC prompt. It runs on its
 own thread so the tray does not hang while that prompt is up.
+
+## Claude Mode
+
+Tick it in the tray and the hotkey stops opening the overlay. Instead it
+screenshots the screen, sends your saved snippet labelled `Current-Prompt`
+along with it to `claude -p`, and puts the answer next to the cursor: one line,
+first 40 characters, white box, black system text, no corners and no shadow.
+It follows the mouse for ten seconds and then it is gone.
+
+Nothing else shows up. No terminal, no taskbar button, no window that takes the
+keyboard off whatever you were typing in.
+
+| While the label is up | Hotkey does |
+| --- | --- |
+| An answer, or `…` waiting on one | Drops it, never to be seen again |
+| `(Err)` | Swaps it for why it failed, or for what the terminal said |
+
+Make the snippet the way you make any other: save it into a folder and name it
+`Current-Prompt`. Case and surrounding spaces do not matter, the first match
+across every folder wins, and with no match at all you get `(Err)`.
+
+Needs Claude Code on the machine, found at `~/.local/bin/claude.exe` or on
+`PATH`. It runs with `--allowedTools Read`, so it can read the screenshot and
+nothing else can be written. Queries are capped at 90 seconds.
+
+The mode lives in memory only: a restart lands back in normal mode, which for
+something this invisible beats having it quietly survive a reboot.
 
 ## Data
 

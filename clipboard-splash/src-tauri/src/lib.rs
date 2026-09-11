@@ -1,6 +1,8 @@
 use std::fs;
-use std::path::PathBuf;
-use std::time::Duration;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -20,15 +22,17 @@ const HOTKEYS: [&str; 3] = ["Super+KeyC", "Super+Alt+KeyC", "Ctrl+Alt+KeyV"];
 
 /// Win11 does not round undecorated windows on its own, and a CSS shadow would
 /// be clipped by the window rect. Handing both to DWM keeps the shadow outside
-/// the window where it cannot be cut off.
+/// the window where it cannot be cut off. The Claude Mode label passes `false`:
+/// it is meant to look like nothing at all, which means hard corners.
 #[cfg(windows)]
-fn round_corners(win: &WebviewWindow) {
+fn round_corners(win: &WebviewWindow, round: bool) {
     use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
     const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+    const DWMWCP_DONOTROUND: u32 = 1;
     const DWMWCP_ROUND: u32 = 2;
 
     if let Ok(hwnd) = win.hwnd() {
-        let preference: u32 = DWMWCP_ROUND;
+        let preference: u32 = if round { DWMWCP_ROUND } else { DWMWCP_DONOTROUND };
         unsafe {
             DwmSetWindowAttribute(
                 hwnd.0 as _,
@@ -36,6 +40,24 @@ fn round_corners(win: &WebviewWindow) {
                 std::ptr::addr_of!(preference).cast(),
                 std::mem::size_of::<u32>() as u32,
             );
+        }
+    }
+}
+
+/// Marks a window as one Windows must never activate. The Claude Mode label
+/// appears while you are working in something else and must not take the
+/// keyboard off it. Tauri's `focus: false` does not cover this: tao clears its
+/// don't-focus marker after the first show, so every show after that activates.
+#[cfg(windows)]
+fn never_activate(win: &WebviewWindow) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE,
+    };
+
+    if let Ok(hwnd) = win.hwnd() {
+        unsafe {
+            let style = GetWindowLongPtrW(hwnd.0 as _, GWL_EXSTYLE);
+            SetWindowLongPtrW(hwnd.0 as _, GWL_EXSTYLE, style | WS_EX_NOACTIVATE as isize);
         }
     }
 }
@@ -140,13 +162,13 @@ async fn fetch_usage() -> Result<serde_json::Value, String> {
     }
 }
 
-/// Places the panel next to the cursor, flipping and then clamping so it always
+/// Places a window next to the cursor, flipping and then clamping so it always
 /// lands fully inside the monitor the cursor is on.
 ///
 /// ponytail: clamps to full monitor bounds, not the work area, so a panel
 /// pinned to the very bottom edge can sit under the taskbar. Swap in
 /// `monitor.work_area()` if that ever actually bites.
-fn show_near_cursor(win: &WebviewWindow) -> tauri::Result<()> {
+fn place_near_cursor(win: &WebviewWindow) -> tauri::Result<()> {
     let cursor = win.app_handle().cursor_position()?;
     let monitor = match win.monitor_from_point(cursor.x, cursor.y)? {
         Some(m) => Some(m),
@@ -180,11 +202,16 @@ fn show_near_cursor(win: &WebviewWindow) -> tauri::Result<()> {
 
         win.set_position(PhysicalPosition::new(x, y))?;
     }
+    Ok(())
+}
+
+fn show_near_cursor(win: &WebviewWindow) -> tauri::Result<()> {
+    place_near_cursor(win)?;
 
     // Setting this in setup() does not survive to first paint, so re-apply it
     // here. Idempotent and a single cheap syscall.
     #[cfg(windows)]
-    round_corners(win);
+    round_corners(win, true);
 
     win.show()?;
     win.set_focus()?;
@@ -264,6 +291,246 @@ fn dismiss_on_click_away(win: WebviewWindow) {
     });
 }
 
+// --- Claude Mode -----------------------------------------------------------
+//
+// The hotkey stops opening the gallery and instead sends the snippet labelled
+// `Current-Prompt` to Claude with a screenshot of the screen, then shows the
+// answer in a label that follows the cursor. Nothing else appears: no terminal,
+// no taskbar entry, no panel.
+
+/// ponytail: lives in memory, so a restart lands back in normal mode. A mode
+/// this invisible silently surviving a reboot is worse than one you opt into.
+static CLAUDE_MODE: AtomicBool = AtomicBool::new(false);
+
+/// Bumped by every show and every dismissal. A worker that finds the counter
+/// moved on knows it is stale and drops what it was doing, which is what makes
+/// "press again and it is gone, never to be seen again" hold mid-query too.
+static TIP_GEN: AtomicU64 = AtomicU64::new(0);
+
+struct Tip {
+    /// The failure reason held back behind `(Err)`, revealed on the next press.
+    detail: Option<String>,
+}
+
+/// `Some` from the moment a query is claimed until the label leaves the screen.
+static TIP: Mutex<Option<Tip>> = Mutex::new(None);
+
+/// A glance, not a read: one line, 40 characters.
+fn one_line(text: &str) -> String {
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(40)
+        .collect()
+}
+
+fn tip_window(app: &AppHandle) -> Option<WebviewWindow> {
+    app.get_webview_window("tip")
+}
+
+fn hide_tip(app: &AppHandle) {
+    TIP_GEN.fetch_add(1, Ordering::SeqCst);
+    *TIP.lock().unwrap() = None;
+    if let Some(win) = tip_window(app) {
+        let _ = win.hide();
+    }
+}
+
+/// Shows `text` beside the cursor for `secs`, following the mouse while it is
+/// up. The webview sizes the window to the text, so the box hugs whatever it
+/// ends up being.
+fn show_tip(app: &AppHandle, text: &str, detail: Option<String>, secs: u64) {
+    let Some(win) = tip_window(app) else { return };
+
+    *TIP.lock().unwrap() = Some(Tip { detail });
+    let generation = TIP_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+
+    let _ = app.emit_to("tip", "tip", one_line(text));
+    #[cfg(windows)]
+    round_corners(&win, false);
+    let _ = place_near_cursor(&win);
+    let _ = win.show();
+
+    std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(secs);
+        while Instant::now() < deadline {
+            if TIP_GEN.load(Ordering::SeqCst) != generation {
+                return; // dismissed, or replaced by a newer label
+            }
+            let _ = place_near_cursor(&win);
+            std::thread::sleep(Duration::from_millis(16));
+        }
+        if TIP_GEN.load(Ordering::SeqCst) == generation {
+            *TIP.lock().unwrap() = None;
+            let _ = win.hide();
+        }
+    });
+}
+
+/// The first snippet labelled `Current-Prompt`, in whichever folder it sits.
+fn current_prompt(app: &AppHandle) -> Option<String> {
+    find_current_prompt(&fs::read_to_string(store_path(app)).ok()?)
+}
+
+fn find_current_prompt(stored: &str) -> Option<String> {
+    let stored: serde_json::Value = serde_json::from_str(stored).ok()?;
+    stored["folders"]
+        .as_array()?
+        .iter()
+        .flat_map(|folder| folder["items"].as_array().into_iter().flatten())
+        .find(|item| {
+            item["label"]
+                .as_str()
+                .is_some_and(|label| label.trim().eq_ignore_ascii_case("current-prompt"))
+        })?["text"]
+        .as_str()
+        .map(str::to_owned)
+}
+
+/// ponytail: shells out to PowerShell for the capture rather than taking on a
+/// screenshot crate or hand-rolling GDI+ encoding. It costs a few hundred ms on
+/// a path that already waits seconds on Claude.
+#[cfg(windows)]
+fn screenshot() -> Option<PathBuf> {
+    use std::os::windows::process::CommandExt;
+
+    let path = std::env::temp_dir().join("clipboard-splash-screen.png");
+    let script = format!(
+        "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; \
+         $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen; \
+         $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height; \
+         $g = [System.Drawing.Graphics]::FromImage($bmp); \
+         $g.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bmp.Size); \
+         $bmp.Save('{}', [System.Drawing.Imaging.ImageFormat]::Png)",
+        path.display()
+    );
+    let _ = fs::remove_file(&path);
+    let _ = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
+    path.exists().then_some(path)
+}
+
+/// Claude Code's own installer drops the binary here. Preferred over bare
+/// `claude` because a GUI process inherits the registry PATH, which may not
+/// have picked up an install from this login session yet.
+#[cfg(windows)]
+fn claude_exe() -> PathBuf {
+    std::env::var("USERPROFILE")
+        .map(|home| Path::new(&home).join(".local").join("bin").join("claude.exe"))
+        .ok()
+        .filter(|path| path.exists())
+        .unwrap_or_else(|| PathBuf::from("claude"))
+}
+
+#[cfg(windows)]
+fn run_claude(prompt: &str, shot: Option<&Path>) -> Result<String, String> {
+    use std::os::windows::process::CommandExt;
+    use std::sync::mpsc;
+
+    let prompt = match shot {
+        Some(path) => format!(
+            "{prompt}\n\nA screenshot of the screen right now is at {}. Read it first.",
+            path.display()
+        ),
+        None => prompt.to_string(),
+    };
+
+    // The prompt goes before --allowedTools: the flag is variadic and swallows
+    // any positional that follows it.
+    let mut command = std::process::Command::new(claude_exe());
+    command
+        .arg("-p")
+        .arg(&prompt)
+        .args(["--allowedTools", "Read"])
+        .stdin(std::process::Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW);
+
+    // `output()` has no timeout and this is a background thread with a label
+    // pinned to the screen, so put the wait on a channel that does.
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || tx.send(command.output()));
+
+    let output = match rx.recv_timeout(Duration::from_secs(90)) {
+        Ok(Ok(output)) => output,
+        Ok(Err(e)) => return Err(format!("could not run claude: {e}")),
+        Err(_) => return Err("claude did not answer within 90s".into()),
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let said = if stderr.is_empty() { stdout } else { stderr };
+        return Err(if said.is_empty() {
+            format!("claude exited {}", output.status)
+        } else {
+            said
+        });
+    }
+    if stdout.is_empty() {
+        return Err("claude answered with nothing".into());
+    }
+    Ok(stdout)
+}
+
+#[cfg(windows)]
+fn ask_claude(app: &AppHandle) {
+    // Claim the slot before anything is drawn, so a press during the capture
+    // cancels instead of starting a second query.
+    *TIP.lock().unwrap() = Some(Tip { detail: None });
+    let generation = TIP_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    let cancelled = move || TIP_GEN.load(Ordering::SeqCst) != generation;
+
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let Some(prompt) = current_prompt(&app) else {
+            if !cancelled() {
+                show_tip(&app, "(Err)", Some("no snippet named Current-Prompt".into()), 10);
+            }
+            return;
+        };
+
+        // Captured before the label goes up, or the label is in the screenshot.
+        let shot = screenshot();
+        if cancelled() {
+            return;
+        }
+
+        // Ten seconds of silence reads as broken, so say something immediately.
+        // The 180s cap is only a backstop; the answer replaces this.
+        show_tip(&app, "…", None, 180);
+        let pending = TIP_GEN.load(Ordering::SeqCst);
+
+        let (text, detail) = match run_claude(&prompt, shot.as_deref()) {
+            Ok(answer) => (answer, None),
+            Err(reason) => ("(Err)".to_string(), Some(reason)),
+        };
+        if TIP_GEN.load(Ordering::SeqCst) != pending {
+            return; // dismissed while waiting: never to be seen again
+        }
+        show_tip(&app, &text, detail, 10);
+    });
+}
+
+/// What the hotkey does, whichever route it arrived by.
+fn on_hotkey(app: &AppHandle) {
+    #[cfg(windows)]
+    if CLAUDE_MODE.load(Ordering::Relaxed) {
+        // A label on screen swallows the press: it dismisses, except on (Err),
+        // where the press trades the marker for the reason behind it.
+        let showing = TIP.lock().unwrap().take();
+        match showing {
+            Some(Tip { detail: Some(reason) }) => show_tip(app, &reason, None, 10),
+            Some(Tip { detail: None }) => hide_tip(app),
+            None => ask_claude(app),
+        }
+        return;
+    }
+    toggle(app);
+}
+
 fn toggle(app: &AppHandle) {
     let Some(win) = app.get_webview_window("main") else {
         return;
@@ -282,7 +549,7 @@ pub fn run() {
         // bound to a key the shell will not release) toggle us by re-running
         // the exe instead of starting a second copy.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            toggle(app);
+            on_hotkey(app);
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -305,7 +572,7 @@ pub fn run() {
             for hotkey in HOTKEYS {
                 let registered = handle.global_shortcut().on_shortcut(hotkey, |app, _, event| {
                     if event.state() == ShortcutState::Pressed {
-                        toggle(app);
+                        on_hotkey(app);
                     }
                 });
                 if registered.is_ok() {
@@ -340,15 +607,29 @@ pub fn run() {
                 copilot_disabled(),
                 None::<&str>,
             )?;
+            #[cfg(windows)]
+            let claude = CheckMenuItem::with_id(
+                app,
+                "claude_mode",
+                "Claude Mode",
+                true,
+                false,
+                None::<&str>,
+            )?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
             let startup_item = startup.clone();
             #[cfg(windows)]
             let copilot_item = copilot.clone();
+            #[cfg(windows)]
+            let claude_item = claude.clone();
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip(format!("Clipboard Splash  ({label})"))
-                .menu(&Menu::with_items(app, &[&show, &startup, &copilot, &quit])?)
+                .menu(&Menu::with_items(
+                    app,
+                    &[&show, &claude, &startup, &copilot, &quit],
+                )?)
                 .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "show" => toggle(app),
@@ -367,6 +648,16 @@ pub fn run() {
                             set_copilot_disabled(wanted);
                             let _ = item.set_checked(copilot_disabled());
                         });
+                    }
+                    #[cfg(windows)]
+                    "claude_mode" => {
+                        let on = !CLAUDE_MODE.load(Ordering::Relaxed);
+                        CLAUDE_MODE.store(on, Ordering::Relaxed);
+                        let _ = claude_item.set_checked(on);
+                        // Leaving the mode should not strand a label on screen.
+                        if !on {
+                            hide_tip(app);
+                        }
                     }
                     "quit" => app.exit(0),
                     _ => {}
@@ -405,8 +696,42 @@ pub fn run() {
                 dismiss_on_click_away(win.clone());
             }
 
+            #[cfg(windows)]
+            if let Some(win) = app.get_webview_window("tip") {
+                never_activate(&win);
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{find_current_prompt, one_line};
+
+    const CLIPS: &str = r#"{"folders":[
+        {"name":"Paths","items":[{"label":"QuickTools","text":"C:/qt"}]},
+        {"name":"Prompts","items":[
+            {"label":" current-prompt ","text":"what is on screen?"},
+            {"label":"Current-Prompt","text":"second one, ignored"}]}]}"#;
+
+    #[test]
+    fn finds_the_prompt_in_any_folder_whatever_its_case() {
+        assert_eq!(
+            find_current_prompt(CLIPS).as_deref(),
+            Some("what is on screen?")
+        );
+        assert_eq!(find_current_prompt(r#"{"folders":[]}"#), None);
+        assert_eq!(find_current_prompt("not json"), None);
+    }
+
+    #[test]
+    fn label_is_one_line_of_forty_characters() {
+        assert_eq!(one_line("  a\n\tb  c "), "a b c");
+        assert_eq!(one_line(&"x".repeat(100)).len(), 40);
+        // Counted in characters, not bytes, or this would panic or truncate mid-glyph.
+        assert_eq!(one_line(&"é".repeat(100)).chars().count(), 40);
+    }
 }

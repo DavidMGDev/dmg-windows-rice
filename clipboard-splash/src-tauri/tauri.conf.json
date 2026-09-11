@@ -23,6 +23,21 @@
         "skipTaskbar": true,
         "shadow": true,
         "visible": false
+      },
+      {
+        "label": "tip",
+        "title": "Clipboard Splash Tip",
+        "url": "index.html?tip",
+        "width": 120,
+        "height": 20,
+        "resizable": false,
+        "decorations": false,
+        "transparent": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "focus": false,
+        "visible": false
       }
     ],
     "security": {

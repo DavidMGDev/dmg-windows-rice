@@ -24,13 +24,6 @@
 <span class="tip" bind:this={box}>{text}</span>
 
 <style>
-  /* The panel's dark page styles are wrong here, and any window bigger than the
-     text for a frame should flash white rather than charcoal. */
-  :global(html),
-  :global(body) {
-    background: #fff;
-  }
-
   .tip {
     display: inline-block;
     padding: 2px 5px;

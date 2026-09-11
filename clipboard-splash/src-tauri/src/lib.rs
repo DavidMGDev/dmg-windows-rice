@@ -20,44 +20,86 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 /// Ctrl+` toggles the VS Code terminal.
 const HOTKEYS: [&str; 3] = ["Super+KeyC", "Super+Alt+KeyC", "Ctrl+Alt+KeyV"];
 
-/// Win11 does not round undecorated windows on its own, and a CSS shadow would
-/// be clipped by the window rect. Handing both to DWM keeps the shadow outside
-/// the window where it cannot be cut off. The Claude Mode label passes `false`:
-/// it is meant to look like nothing at all, which means hard corners.
 #[cfg(windows)]
-fn round_corners(win: &WebviewWindow, round: bool) {
-    use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
-    const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
-    const DWMWCP_DONOTROUND: u32 = 1;
-    const DWMWCP_ROUND: u32 = 2;
+const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+#[cfg(windows)]
+const DWMWA_BORDER_COLOR: u32 = 34;
 
+#[cfg(windows)]
+fn dwm_set(win: &WebviewWindow, attribute: u32, value: u32) {
+    use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
     if let Ok(hwnd) = win.hwnd() {
-        let preference: u32 = if round { DWMWCP_ROUND } else { DWMWCP_DONOTROUND };
         unsafe {
             DwmSetWindowAttribute(
                 hwnd.0 as _,
-                DWMWA_WINDOW_CORNER_PREFERENCE,
-                std::ptr::addr_of!(preference).cast(),
+                attribute,
+                std::ptr::addr_of!(value).cast(),
                 std::mem::size_of::<u32>() as u32,
             );
         }
     }
 }
 
-/// Marks a window as one Windows must never activate. The Claude Mode label
-/// appears while you are working in something else and must not take the
-/// keyboard off it. Tauri's `focus: false` does not cover this: tao clears its
-/// don't-focus marker after the first show, so every show after that activates.
+/// Win11 does not round undecorated windows on its own, and a CSS shadow would
+/// be clipped by the window rect. Handing both to DWM keeps the shadow outside
+/// the window where it cannot be cut off.
 #[cfg(windows)]
-fn never_activate(win: &WebviewWindow) {
+fn round_corners(win: &WebviewWindow) {
+    const DWMWCP_ROUND: u32 = 2;
+    dwm_set(win, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND);
+}
+
+/// Strips the Claude Mode label down to nothing but its own pixels.
+///
+/// Square, because the label should not read as a window at all. Borderless,
+/// because tao keeps `WS_CAPTION` on undecorated windows and hides the frame in
+/// `WM_NCCALCSIZE`, which leaves DWM still drawing its border: a dark line
+/// along the top edge of every label. And never activated, because it appears
+/// while you are working in something else and must not take the keyboard off
+/// it — Tauri's `focus: false` does not cover that, since tao clears its
+/// don't-focus marker after the first show and every show after that activates.
+#[cfg(windows)]
+fn bare_window(win: &WebviewWindow) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE,
     };
+    const DWMWCP_DONOTROUND: u32 = 1;
+    const DWMWA_COLOR_NONE: u32 = 0xFFFF_FFFE;
+
+    dwm_set(win, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND);
+    dwm_set(win, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE);
 
     if let Ok(hwnd) = win.hwnd() {
         unsafe {
             let style = GetWindowLongPtrW(hwnd.0 as _, GWL_EXSTYLE);
             SetWindowLongPtrW(hwnd.0 as _, GWL_EXSTYLE, style | WS_EX_NOACTIVATE as isize);
+        }
+    }
+}
+
+/// Swaps the arrow for the working cursor while a query is out, and hands it
+/// back afterwards. The only sign Claude Mode gives that it is busy.
+///
+/// ponytail: this is the system cursor, not ours — our label is not under the
+/// pointer and an unfocused window cannot set the cursor anywhere else. Kill
+/// the process mid-query and the arrow stays busy until something reloads the
+/// cursor scheme. Worth it for feedback that costs no pixels.
+#[cfg(windows)]
+fn busy_cursor(busy: bool) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CopyIcon, LoadCursorW, SetSystemCursor, SystemParametersInfoW, IDC_APPSTARTING, OCR_NORMAL,
+        SPI_SETCURSORS,
+    };
+
+    unsafe {
+        if busy {
+            // SetSystemCursor destroys the handle it is given, and the one
+            // LoadCursorW hands back is shared, so give it a copy.
+            let working = CopyIcon(LoadCursorW(std::ptr::null_mut(), IDC_APPSTARTING));
+            SetSystemCursor(working, OCR_NORMAL);
+        } else {
+            // Reloads every cursor from the registry, undoing the swap.
+            SystemParametersInfoW(SPI_SETCURSORS, 0, std::ptr::null_mut(), 0);
         }
     }
 }
@@ -211,7 +253,7 @@ fn show_near_cursor(win: &WebviewWindow) -> tauri::Result<()> {
     // Setting this in setup() does not survive to first paint, so re-apply it
     // here. Idempotent and a single cheap syscall.
     #[cfg(windows)]
-    round_corners(win, true);
+    round_corners(win);
 
     win.show()?;
     win.set_focus()?;
@@ -330,6 +372,8 @@ fn tip_window(app: &AppHandle) -> Option<WebviewWindow> {
 }
 
 fn hide_tip(app: &AppHandle) {
+    #[cfg(windows)]
+    busy_cursor(false);
     TIP_GEN.fetch_add(1, Ordering::SeqCst);
     *TIP.lock().unwrap() = None;
     if let Some(win) = tip_window(app) {
@@ -347,8 +391,6 @@ fn show_tip(app: &AppHandle, text: &str, detail: Option<String>, secs: u64) {
     let generation = TIP_GEN.fetch_add(1, Ordering::SeqCst) + 1;
 
     let _ = app.emit_to("tip", "tip", one_line(text));
-    #[cfg(windows)]
-    round_corners(&win, false);
     let _ = place_near_cursor(&win);
     let _ = win.show();
 
@@ -444,6 +486,9 @@ fn run_claude(prompt: &str, shot: Option<&Path>) -> Result<String, String> {
     command
         .arg("-p")
         .arg(&prompt)
+        // Plain `claude-opus-5` is the 200k window; the million-token one is a
+        // `[1m]` suffix, and this asks a question about one screenshot.
+        .args(["--model", "claude-opus-5", "--effort", "high"])
         .args(["--allowedTools", "Read"])
         .stdin(std::process::Stdio::null())
         .creation_flags(CREATE_NO_WINDOW);
@@ -492,22 +537,21 @@ fn ask_claude(app: &AppHandle) {
             return;
         };
 
-        // Captured before the label goes up, or the label is in the screenshot.
+        busy_cursor(true);
         let shot = screenshot();
         if cancelled() {
             return;
         }
 
-        // Ten seconds of silence reads as broken, so say something immediately.
-        // The 180s cap is only a backstop; the answer replaces this.
-        show_tip(&app, "…", None, 180);
-        let pending = TIP_GEN.load(Ordering::SeqCst);
-
+        // Nothing is drawn while the query is out. A placeholder would be text
+        // the user has to read and discard, so the waiting shows in the cursor
+        // instead, which costs no pixels and is already where they are looking.
         let (text, detail) = match run_claude(&prompt, shot.as_deref()) {
             Ok(answer) => (answer, None),
             Err(reason) => ("(Err)".to_string(), Some(reason)),
         };
-        if TIP_GEN.load(Ordering::SeqCst) != pending {
+        busy_cursor(false);
+        if cancelled() {
             return; // dismissed while waiting: never to be seen again
         }
         show_tip(&app, &text, detail, 10);
@@ -698,7 +742,7 @@ pub fn run() {
 
             #[cfg(windows)]
             if let Some(win) = app.get_webview_window("tip") {
-                never_activate(&win);
+                bare_window(&win);
             }
 
             Ok(())

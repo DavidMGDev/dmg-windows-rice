@@ -35,6 +35,16 @@ body {
   cursor: default;
 }
 
+/* The Claude Mode label is its own window and its own thing: a white box, not
+   the dark panel. Specificity, not order, decides this — the label's styles
+   live in a component and tie with the rule above on `html, body`, and the tie
+   went the wrong way, leaving a dark strip along the top edge wherever the
+   window came out a pixel taller than the text. */
+html.tip,
+html.tip body {
+  background: #fff;
+}
+
 button {
   font: inherit;
   color: inherit;

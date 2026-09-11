@@ -87,21 +87,32 @@ along with it to `claude -p`, and puts the answer next to the cursor: one line,
 first 40 characters, white box, black system text, no corners and no shadow.
 It follows the mouse for ten seconds and then it is gone.
 
-Nothing else shows up. No terminal, no taskbar button, no window that takes the
-keyboard off whatever you were typing in.
+Nothing else shows up while it works. No terminal, no taskbar button, no
+placeholder text to read and discard, and no window that takes the keyboard off
+whatever you were typing in. The only sign it is busy is the cursor, which
+turns to the working arrow until the answer lands.
 
-| While the label is up | Hotkey does |
+| When you press it again | Hotkey does |
 | --- | --- |
-| An answer, or `…` waiting on one | Drops it, never to be seen again |
-| `(Err)` | Swaps it for why it failed, or for what the terminal said |
+| A query is still out | Drops it silently, answer never arrives |
+| An answer is on screen | Drops it, never to be seen again |
+| `(Err)` is on screen | Swaps it for why it failed, or for what the terminal said |
 
 Make the snippet the way you make any other: save it into a folder and name it
 `Current-Prompt`. Case and surrounding spaces do not matter, the first match
 across every folder wins, and with no match at all you get `(Err)`.
 
 Needs Claude Code on the machine, found at `~/.local/bin/claude.exe` or on
-`PATH`. It runs with `--allowedTools Read`, so it can read the screenshot and
-nothing else can be written. Queries are capped at 90 seconds.
+`PATH`. Queries run `claude-opus-5` at high effort, with `--allowedTools Read`
+so it can read the screenshot and nothing else can be written, and a 90 second
+cap. The model name carries no `[1m]` suffix, so this is the 200k context
+window: it is one question about one screenshot.
+
+The working cursor is the system arrow, swapped for the duration and put back
+with `SPI_SETCURSORS`. Our own label is never under the pointer and an
+unfocused window cannot set the cursor anywhere else, so there is no narrower
+way to do it. Kill the app mid-query and the arrow stays busy until something
+reloads the cursor scheme.
 
 The mode lives in memory only: a restart lands back in normal mode, which for
 something this invisible beats having it quietly survive a reboot.

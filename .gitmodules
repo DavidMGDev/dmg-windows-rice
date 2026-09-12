@@ -4,3 +4,6 @@
 [submodule "stignore"]
 	path = stignore
 	url = https://github.com/DavidMGDev/stignore.git
+[submodule "Thunderboard"]
+	path = Thunderboard
+	url = https://github.com/DavidMGDev/Thunderboard.git

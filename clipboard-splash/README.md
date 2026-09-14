@@ -168,12 +168,32 @@ and a second capture would mostly be a picture of the label.
 
 Holding it does the same clearing on the way down, then opens the line.
 
+### Letting it write files
+
+Claude can only read unless the prompt names a folder. Put an absolute path
+in `Current-Prompt`, like `C:\School\Parcial-I\`, and the query runs from that
+folder with it added via `--add-dir` under `--permission-mode acceptEdits`, so
+Claude can create and edit files there and is refused anywhere else. It may
+also run `python`, which is how it gets at scripts kept in the folder. Paths
+with spaces are fine. Each path is cut back to the longest part that exists as
+a folder, so a path to a file inside it grants the folder. A bare drive never
+counts. Typed follow-ups keep the folders of the query they continue.
+
+Python is the loose end. It runs with your rights and writes wherever the
+script points, and the screenshot is text Claude reads and may act on. Only
+name a folder in prompts you point at screens you trust.
+
+`scripts/test-claude-tools.ps1` runs claude the same hidden way and reports
+which tools it used, what got refused, how long it took, and every window that
+appeared, which is how "nothing flashes on screen" was checked.
+
 ### Running it
 
 Needs Claude Code on the machine, found at `~/.local/bin/claude.exe` or on
 `PATH`. Queries run `claude-opus-5` at high effort, with `--allowedTools Read`
-so it can read the screenshot and nothing else can be written, and a 90 second
-cap. The model name carries no `[1m]` suffix, so this is the 200k context
+and nothing else when the prompt names no folder, and a five minute cap, as a
+query that fills a workbook takes a minute or more. The model name carries no
+`[1m]` suffix, so this is the 200k context
 window. Output comes back as `--output-format json`, which is only there for
 the session id that makes typing back land in the same conversation.
 

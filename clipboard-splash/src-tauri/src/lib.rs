@@ -359,7 +359,9 @@ static TIP: Mutex<Option<Tip>> = Mutex::new(None);
 
 /// The Claude Code conversation a typed follow-up resumes, so holding the
 /// hotkey and typing carries on from the screenshot rather than starting over.
-static SESSION: Mutex<Option<String>> = Mutex::new(None);
+/// The folders go with it: Claude Code files a session under the folder it ran
+/// from, so a resume run from anywhere else would not find it.
+static SESSION: Mutex<Option<(String, Vec<PathBuf>)>> = Mutex::new(None);
 
 /// Everything the label knows about itself. Position and lifetime stay here;
 /// the webview only draws this and reports back how wide it came out.
@@ -485,6 +487,40 @@ fn find_current_prompt(stored: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// Folders the prompt names by absolute path, which is how a prompt gives Claude
+/// somewhere to write. A path may hold spaces and run straight on into the
+/// sentence, so each is cut back to the longest stretch that is a real folder.
+/// A bare drive never counts.
+///
+/// ponytail: cuts back a character at a time, one stat each. Prompts are a few
+/// paragraphs, so that is a few hundred stats at most.
+fn prompt_dirs(prompt: &str, is_dir: impl Fn(&Path) -> bool) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for line in prompt.lines() {
+        let bytes = line.as_bytes();
+        for start in 0..bytes.len().saturating_sub(2) {
+            let drive = bytes[start].is_ascii_alphabetic()
+                && bytes[start + 1] == b':'
+                && matches!(bytes[start + 2], b'\\' | b'/')
+                && (start == 0 || !bytes[start - 1].is_ascii_alphanumeric());
+            if !drive {
+                continue;
+            }
+            let found = (start + 4..=line.len())
+                .rev()
+                .filter(|&end| line.is_char_boundary(end))
+                .map(|end| line[start..end].trim_end_matches(['\\', '/']))
+                .find(|path| path.len() > 3 && is_dir(Path::new(path)));
+            if let Some(path) = found.map(PathBuf::from) {
+                if !dirs.contains(&path) {
+                    dirs.push(path);
+                }
+            }
+        }
+    }
+    dirs
+}
+
 /// ponytail: shells out to PowerShell for the capture rather than taking on a
 /// screenshot crate or hand-rolling GDI+ encoding. It costs a few hundred ms on
 /// a path that already waits seconds on Claude.
@@ -523,12 +559,14 @@ fn claude_exe() -> PathBuf {
 }
 
 /// Returns the answer and the session it landed in, which is what lets a typed
-/// follow-up resume the same conversation.
+/// follow-up resume the same conversation. `dirs` are the folders it may write
+/// in; with none it can only read.
 #[cfg(windows)]
 fn run_claude(
     prompt: &str,
     shot: Option<&Path>,
     resume: Option<&str>,
+    dirs: &[PathBuf],
 ) -> Result<(String, Option<String>), String> {
     use std::os::windows::process::CommandExt;
     use std::sync::mpsc;
@@ -554,22 +592,40 @@ fn run_claude(
         // `--resume` takes an optional value, so its id follows it immediately.
         command.args(["--resume", session]);
     }
-    // The prompt goes before --allowedTools: the flag is variadic and swallows
-    // any positional that follows it.
+    // Writing is scoped by acceptEdits, which approves edits inside the folder
+    // Claude runs from and the added ones and refuses the rest. Putting Write
+    // in --allowedTools instead approves it anywhere on disk, tested. Python is
+    // what runs the scripts in those folders, and it runs with the user's
+    // rights wherever it points.
+    let tools: &[&str] = match dirs.first() {
+        None => &["Read"],
+        Some(home) => {
+            command.current_dir(home).args(["--permission-mode", "acceptEdits"]);
+            for dir in dirs {
+                command.arg("--add-dir").arg(dir);
+            }
+            &["Read", "Glob", "Grep", "Bash(python *)", "PowerShell(python *)"]
+        }
+    };
+    // The prompt goes before --add-dir and --allowedTools: both are variadic
+    // and swallow any positional that follows them.
     command
-        .args(["--allowedTools", "Read"])
+        .arg("--allowedTools")
+        .args(tools)
         .stdin(std::process::Stdio::null())
         .creation_flags(CREATE_NO_WINDOW);
 
     // `output()` has no timeout and this is a background thread with a label
-    // pinned to the screen, so put the wait on a channel that does.
+    // pinned to the screen, so put the wait on a channel that does. Five
+    // minutes because a query that fills a workbook runs a minute on a small
+    // model and longer on a big one.
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || tx.send(command.output()));
 
-    let output = match rx.recv_timeout(Duration::from_secs(90)) {
+    let output = match rx.recv_timeout(Duration::from_secs(300)) {
         Ok(Ok(output)) => output,
         Ok(Err(e)) => return Err(format!("could not run claude: {e}")),
-        Err(_) => return Err("claude did not answer within 90s".into()),
+        Err(_) => return Err("claude did not answer within 5 minutes".into()),
     };
 
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -633,23 +689,25 @@ fn ask_claude(app: &AppHandle, follow_up: Option<String>) {
         // the user has to read and discard, so the waiting shows in the cursor
         // instead, which costs no pixels and is already where they are looking.
         busy_cursor(true);
-        let answered = match follow_up {
+        let (answered, dirs) = match follow_up {
             // No second capture: Claude still has the first one in the session,
             // and a screenshot of the label being typed into is not the screen.
             Some(line) => {
-                let resume = SESSION.lock().unwrap().clone();
-                run_claude(&line, None, resume.as_deref())
+                let (resume, dirs) = SESSION.lock().unwrap().clone().unzip();
+                let dirs = dirs.unwrap_or_default();
+                (run_claude(&line, None, resume.as_deref(), &dirs), dirs)
             }
             None => match current_prompt(&app) {
                 Some(prompt) => {
+                    let dirs = prompt_dirs(&prompt, Path::is_dir);
                     let shot = screenshot();
                     if cancelled() {
                         busy_cursor(false);
                         return;
                     }
-                    run_claude(&prompt, shot.as_deref(), None)
+                    (run_claude(&prompt, shot.as_deref(), None, &dirs), dirs)
                 }
-                None => Err("no snippet named Current-Prompt".into()),
+                None => (Err("no snippet named Current-Prompt".into()), Vec::new()),
             },
         };
         busy_cursor(false);
@@ -659,8 +717,8 @@ fn ask_claude(app: &AppHandle, follow_up: Option<String>) {
 
         match answered {
             Ok((answer, session)) => {
-                if session.is_some() {
-                    *SESSION.lock().unwrap() = session;
+                if let Some(id) = session {
+                    *SESSION.lock().unwrap() = Some((id, dirs));
                 }
                 deliver(&app, &answer, typed);
             }
@@ -1107,7 +1165,22 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{find_current_prompt, glance, one_line, Label};
+    use super::{find_current_prompt, glance, one_line, prompt_dirs, Label};
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn a_prompt_grants_the_real_folders_it_names() {
+        let real = ["C:\\Notes\\Parcial I", "D:/work"];
+        let is_dir = |path: &Path| real.iter().any(|r| Path::new(r) == path);
+        let prompt = "Working folder: C:\\Notes\\Parcial I\\\n\
+                      Also D:/work, then C:\\Notes\\Parcial I\\SKILL.md again.\n\
+                      Not C:\\ alone, not E:\\gone, not a URL like https://x";
+        assert_eq!(
+            prompt_dirs(prompt, is_dir),
+            [PathBuf::from("C:\\Notes\\Parcial I"), PathBuf::from("D:/work")]
+        );
+        assert!(prompt_dirs("what is on screen?", is_dir).is_empty());
+    }
 
     const CLIPS: &str = r#"{"folders":[
         {"name":"Paths","items":[{"label":"QuickTools","text":"C:/qt"}]},
